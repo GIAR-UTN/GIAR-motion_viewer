@@ -1,12 +1,14 @@
-# Motion Viewer
+# Motion Viewer — NPZ Viewer / Player for URDF Humanoid Robots
 
-A browser-based 3D motion visualizer for any robot. Load a URDF with STL meshes and NPZ motion data — everything runs client-side, no server required.
+A free, browser-based **NPZ viewer** and **NPZ player** for visualizing humanoid robot motion. Load any URDF with STL meshes and play back `.npz` motion trajectories — everything runs client-side, no server, no upload, no install.
 
-**[Live Demo](https://zelin-tao.github.io/motion-viewer/)**
+**[🚀 Live Demo](https://zelin-tao.github.io/motion-viewer/)**
+
+> Search keywords: *npz viewer · npz player · npz file viewer · urdf viewer · urdf motion player · humanoid motion viewer · Unitree G1 viewer · Isaac Lab npz · AMASS viewer · mocap viewer*
 
 ## Features
 
-- **Any robot** — drag-and-drop any URDF + STL mesh bundle
+- **Any robot** — drag-and-drop any URDF + STL mesh bundle (Unitree G1, H1, custom humanoids)
 - **NPZ motion playback** — visualize body pose trajectories at arbitrary FPS
 - **Zero install** — single HTML file, runs entirely in the browser via Three.js
 - **Playback controls** — play/pause, timeline scrubbing, speed (0.25x–2x), frame stepping

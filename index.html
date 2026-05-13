@@ -3,7 +3,101 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Motion Viewer</title>
+
+<!-- Primary SEO -->
+<title>NPZ Viewer / Player — Motion Viewer for URDF Humanoid Robots</title>
+<meta name="description" content="Free browser-based NPZ viewer and player for URDF humanoid robots. Drag-and-drop URDF + STL meshes and .npz motion files to visualize and play back robot motion trajectories. Supports Unitree G1, H1, AMASS, and Isaac Lab motion data. No installation required.">
+<meta name="keywords" content="npz viewer, npz player, npz file viewer, motion viewer, urdf viewer, urdf player, robot motion viewer, humanoid motion viewer, unitree g1 viewer, isaac lab npz, amass viewer, mocap viewer, robot trajectory player, three.js urdf">
+<meta name="author" content="Zelin Tao">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://zelin-tao.github.io/motion-viewer/">
+
+<!-- Google Search Console verification (replace content with your token after registering) -->
+<!-- <meta name="google-site-verification" content="PASTE_YOUR_TOKEN_HERE"> -->
+
+<!-- Open Graph / social preview -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://zelin-tao.github.io/motion-viewer/">
+<meta property="og:title" content="NPZ Viewer / Player — Motion Viewer for URDF Humanoid Robots">
+<meta property="og:description" content="Free browser-based NPZ motion viewer. Drag URDF + .npz files to visualize humanoid robot motion. Runs entirely in your browser, no upload.">
+<meta property="og:image" content="https://zelin-tao.github.io/motion-viewer/preview.png">
+<meta property="og:site_name" content="Motion Viewer">
+
+<!-- Twitter card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NPZ Viewer / Player — Motion Viewer">
+<meta name="twitter:description" content="Free browser-based NPZ motion viewer for URDF humanoid robots. Drag-and-drop, no install.">
+<meta name="twitter:image" content="https://zelin-tao.github.io/motion-viewer/preview.png">
+
+<!-- Structured data: WebApplication + SoftwareApplication + FAQ -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Motion Viewer — NPZ Viewer / Player",
+  "alternateName": ["NPZ Viewer", "NPZ Player", "URDF Motion Viewer", "Humanoid Motion Viewer"],
+  "url": "https://zelin-tao.github.io/motion-viewer/",
+  "description": "Free browser-based NPZ motion viewer and player for URDF humanoid robots. Drag-and-drop URDF + STL meshes and .npz motion files to visualize body pose trajectories. Compatible with Unitree G1, H1, Isaac Lab, and AMASS motion data.",
+  "applicationCategory": "DeveloperApplication",
+  "applicationSubCategory": "Robotics Visualization",
+  "operatingSystem": "Any (browser-based)",
+  "browserRequirements": "Modern browser with WebGL support",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Zelin Tao", "url": "https://zelin-tao.github.io/" },
+  "softwareVersion": "1.0",
+  "featureList": [
+    "NPZ motion file playback",
+    "URDF + STL mesh visualization",
+    "Drag-and-drop loading",
+    "Playback speed control (0.25x - 2x)",
+    "Frame-by-frame stepping",
+    "Camera follow mode",
+    "Trajectory trail visualization",
+    "Multi-motion switching"
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is an NPZ viewer?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "An NPZ viewer is a tool that visualizes motion data stored in NumPy .npz files. Motion Viewer is a free browser-based NPZ viewer for humanoid robots — it reads body pose trajectories (body_pos_w, body_quat_w) from .npz files and animates them on a URDF robot model."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do I play an .npz motion file?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Open Motion Viewer in your browser, drag a robot folder containing a URDF and STL meshes into the window, then drag one or more .npz motion files. Use the timeline and play button to scrub through the motion."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Motion Viewer support Unitree G1?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Motion Viewer works with any URDF including Unitree G1, H1, and custom humanoid robots. The repository includes a Unitree G1 demo with example motion data."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What .npz format does it expect?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The viewer expects the whole_body_tracking convention: required keys are fps, body_pos_w (N, num_bodies, 3), and body_quat_w (N, num_bodies, 4) in wxyz order with Z-up coordinates."
+      }
+    }
+  ]
+}
+</script>
+
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='url(%23g)'/><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%232d9aaa'/><stop offset='1' stop-color='%23aa2d6a'/></linearGradient></defs><text x='16' y='22' font-family='monospace' font-size='14' font-weight='700' fill='white' text-anchor='middle'>MV</text></svg>">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap');
@@ -48,6 +142,7 @@
   .tb.on{background:rgba(45,154,170,.15);border-color:var(--cyan);color:var(--cyan)}
   .tb.on2{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
   .kb{position:absolute;bottom:8px;right:10px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);pointer-events:none;display:flex;gap:10px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .kb kbd{background:#10101f;border:1px solid var(--border);border-radius:2px;padding:1px 4px;font-family:inherit}
   .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'IBM Plex Mono',monospace;font-size:13px;background:rgba(8,8,15,.95);padding:14px 24px;border-radius:6px;border:1px solid var(--cyan);color:var(--cyan);z-index:200;display:none;text-align:center}
   .ms{padding:6px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;border-bottom:1px solid var(--border);flex-shrink:0}
@@ -55,6 +150,34 @@
 </style>
 </head>
 <body>
+
+<!-- SEO content: visually hidden, accessible to search engines and screen readers -->
+<div class="sr-only">
+  <h1>NPZ Viewer / Player &mdash; Motion Viewer for URDF Humanoid Robots</h1>
+  <p>Motion Viewer is a free, browser-based <strong>NPZ viewer</strong> and <strong>NPZ player</strong> for visualizing humanoid robot motion. Drag a robot folder containing a URDF file and STL meshes into the window, then drag one or more <code>.npz</code> motion files to play them back with full timeline scrubbing, variable playback speed, and frame-by-frame stepping.</p>
+  <h2>Features</h2>
+  <ul>
+    <li>Browser-based NPZ file viewer &mdash; no installation, no upload, runs locally via WebGL and Three.js</li>
+    <li>Drag-and-drop loading of URDF + STL mesh bundles</li>
+    <li>Plays back NumPy <code>.npz</code> motion trajectories at arbitrary FPS</li>
+    <li>Supports Unitree G1, Unitree H1, and any custom humanoid URDF</li>
+    <li>Compatible with Isaac Lab / IsaacSim motion data and the whole_body_tracking NPZ convention</li>
+    <li>Playback controls: play/pause, scrub, 0.25x&ndash;2x speed, frame stepping</li>
+    <li>Camera follow mode and ground-plane trajectory trail</li>
+    <li>Multi-motion switching with keyboard shortcuts</li>
+  </ul>
+  <h2>Frequently asked questions</h2>
+  <h3>What is an NPZ viewer?</h3>
+  <p>An NPZ viewer is a tool that visualizes motion data stored in NumPy <code>.npz</code> files. Motion Viewer reads body pose trajectories (<code>body_pos_w</code>, <code>body_quat_w</code>) and animates them on a URDF robot model directly in the browser.</p>
+  <h3>How do I play an .npz motion file?</h3>
+  <p>Open Motion Viewer, drag a robot folder containing a URDF and STL meshes into the window, then drag one or more <code>.npz</code> motion files. Use the timeline and play button to scrub through the motion.</p>
+  <h3>Does it support Unitree G1?</h3>
+  <p>Yes. Motion Viewer works with Unitree G1, Unitree H1, and any other humanoid robot described by a standard URDF.</p>
+  <h3>What .npz format does it expect?</h3>
+  <p>The viewer follows the whole_body_tracking convention. Required keys: <code>fps</code>, <code>body_pos_w</code> with shape (N, num_bodies, 3), and <code>body_quat_w</code> with shape (N, num_bodies, 4) in wxyz order, using Z-up coordinates.</p>
+  <p>Source code and documentation: <a href="https://github.com/zelin-tao/motion-viewer">github.com/zelin-tao/motion-viewer</a></p>
+</div>
+
 <div id="app">
   <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF + meshes) + .npz</span></div>
   <div class="main">

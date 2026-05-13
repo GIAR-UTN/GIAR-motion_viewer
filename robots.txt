@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zelin-tao.github.io/motion-viewer/sitemap.xml
