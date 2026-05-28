@@ -15,6 +15,7 @@ A free, browser-based **NPZ viewer** and **NPZ player** for visualizing humanoid
 - **Camera follow** — auto-track the robot root body
 - **Trajectory trail** — toggle a ground-plane trace of the root path
 - **Multi-motion** — load multiple `.npz` files and switch between them
+- **Data annotation** — review motions one by one, mark each keep/discard (`Y`/`N`), and export a CSV of all labels
 
 ## Quick Start
 
@@ -30,6 +31,7 @@ A free, browser-based **NPZ viewer** and **NPZ player** for visualizing humanoid
 | `Space` | Play / Pause |
 | `←` `→` | Step frame backward / forward |
 | `[` `]` | Previous / next motion |
+| `Y` / `N` | Label current motion keep / discard (auto-advances to next) |
 
 ### Demo Assets
 

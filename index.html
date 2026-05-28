@@ -147,6 +147,11 @@
   .toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'IBM Plex Mono',monospace;font-size:13px;background:rgba(8,8,15,.95);padding:14px 24px;border-radius:6px;border:1px solid var(--cyan);color:var(--cyan);z-index:200;display:none;text-align:center}
   .ms{padding:6px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;border-bottom:1px solid var(--border);flex-shrink:0}
   .ms.ok{color:var(--grn)}.ms.no{color:var(--t3)}.ms.warn{color:#cc8833}
+  .lbl{font-family:'IBM Plex Mono',monospace;font-size:8px;padding:1px 5px;border-radius:3px;margin-left:6px;text-transform:uppercase;letter-spacing:1px;vertical-align:middle}
+  .lbl.keep{background:rgba(45,170,106,.2);color:var(--grn)}
+  .lbl.abort{background:rgba(170,45,106,.2);color:var(--mag)}
+  .tb.keepon{background:rgba(45,170,106,.15);border-color:var(--grn);color:var(--grn)}
+  .tb.dropon{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
 </style>
 </head>
 <body>
@@ -183,18 +188,19 @@
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF + STL</div>
-      <div class="sb-l">Motions</div>
+      <div class="sb-l" id="sbl">Motions</div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
         <label class="sb-b"><input type="file" id="fi" multiple accept=".npz">+ Add .npz</label>
         <label class="sb-b"><input type="file" id="fd" multiple accept=".npz" webkitdirectory>+ Add folder</label>
+        <button class="sb-b" id="bx">&#11015; Export CSV</button>
       </div>
     </div>
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
       <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF + STL meshes</b><br>Step 2: Drag <b>.npz</b> motion files</div></div>
-      <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span></div>
+      <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
   </div>
   <div class="ctrl" id="ctrlBar" style="display:none">
@@ -203,6 +209,8 @@
     <div class="sg"><span class="sl">Spd</span><button class="spb" data-s="0.25">.25</button><button class="spb" data-s="0.5">.5</button><button class="spb act" data-s="1">1x</button><button class="spb" data-s="2">2x</button></div>
     <button class="tb on" id="bf">Follow</button>
     <button class="tb" id="bt">Trail</button>
+    <button class="tb" id="bk">&#10003; Keep</button>
+    <button class="tb" id="bd">&#10007; Drop</button>
   </div>
 </div>
 <div class="drop" id="dr"><span>Drop here</span><span style="font-size:12px;opacity:.7">Robot folder (URDF + meshes) or .npz files</span></div>
@@ -667,14 +675,20 @@ var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false;
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
 function rSb(){
   var el=$('sl');el.innerHTML='';
+  var actEl=null,labeled=0;
   for(var i=0;i<mots.length;i++){
     var m=mots[i],d=document.createElement('div');
+    if(m.label)labeled++;
+    var badge=m.label==='keep'?'<span class="lbl keep">keep</span>':m.label==='abort'?'<span class="lbl abort">drop</span>':'';
     d.className='sb-i'+(i===aIdx?' act':'');
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+'</div><div class="sb-m">'+m.d.nF+'f\u00b7'+m.d.fps+'fps\u00b7'+(m.d.nF/m.d.fps).toFixed(1)+'s</div>';
+    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+badge+'</div><div class="sb-m">'+m.d.nF+'f\u00b7'+m.d.fps+'fps\u00b7'+(m.d.nF/m.d.fps).toFixed(1)+'s</div>';
     d.setAttribute('data-i',i);
     d.onclick=function(){aIdx=parseInt(this.getAttribute('data-i'));cFr=0;tPts=[];rSb();uUI();};
     el.appendChild(d);
+    if(i===aIdx)actEl=d;
   }
+  $('sbl').textContent=mots.length?'Motions \u00b7 '+labeled+'/'+mots.length:'Motions';
+  if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
   else if (hiText) $('hi').textContent = hiText + ' loaded';
@@ -687,6 +701,8 @@ function uUI(){
   $('t0').textContent=fmt(cFr,m.fps);$('t1').textContent=fmt(m.nF-1,m.fps);
   $('bp').textContent=play?'\u23f8':'\u25b6';
   $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmt(cFr,m.fps)+'<span class="s">|</span>f'+cFr+'/'+(m.nF-1);
+  $('bk').classList.toggle('keepon',mots[aIdx].label==='keep');
+  $('bd').classList.toggle('dropon',mots[aIdx].label==='abort');
   if (meshLoaded && m.nB !== nBodies) {
     $('ms').textContent = '\u26a0 URDF/NPZ mismatch: NPZ=' + m.nB + ' bodies, URDF=' + nBodies + ' bodies. Use a matching URDF.';
     $('ms').className = 'ms warn';
@@ -717,7 +733,7 @@ function loadNPZ(files){
         var a=parseNPZ(ev.target.result);
         if(a.body_pos_w){
           var d=extractMotion(a);
-          mots.push({name:f.name.replace('.npz',''),d:d});
+          mots.push({name:f.name.replace('.npz',''),d:d,label:null});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -830,6 +846,32 @@ function procFileList(files) {
 $('fi').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
 $('fd').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
 
+// ── Annotation ──
+function setLabel(label){
+  if(!mots.length||!mots[aIdx])return;
+  mots[aIdx].label=label;
+  if(aIdx<mots.length-1){aIdx++;cFr=0;tPts=[];}
+  rSb();uUI();
+}
+function csvCell(s){
+  s=String(s);
+  return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+}
+function exportCSV(){
+  if(!mots.length)return;
+  var rows=['motion,status'];
+  for(var i=0;i<mots.length;i++){
+    var st=mots[i].label==='keep'?'keep':mots[i].label==='abort'?'aborted':'';
+    rows.push(csvCell(mots[i].name)+','+st);
+  }
+  var blob=new Blob([rows.join('\n')+'\n'],{type:'text/csv'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='annotations.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ── Controls ──
 $('bp').onclick=function(){play=!play;uUI();};
 $('sc').addEventListener('input',function(){cFr=parseInt(this.value);play=false;uUI();});
@@ -841,6 +883,9 @@ for(var i=0;i<sbs.length;i++) sbs[i].onclick=function(){
 };
 $('bf').onclick=function(){fCam=!fCam;this.classList.toggle('on',fCam);};
 $('bt').onclick=function(){sTrl=!sTrl;this.classList.toggle('on2',sTrl);if(!sTrl){tPts=[];trl.visible=false;}};
+$('bk').onclick=function(){setLabel('keep');};
+$('bd').onclick=function(){setLabel('abort');};
+$('bx').onclick=exportCSV;
 window.addEventListener('keydown',function(e){
   if(!mots.length)return;
   var m=mots[aIdx]?mots[aIdx].d:null;if(!m)return;
@@ -849,6 +894,8 @@ window.addEventListener('keydown',function(e){
   else if(e.code==='ArrowLeft'){e.preventDefault();cFr=Math.max(cFr-1,0);play=false;uUI();}
   else if(e.code==='BracketRight'){e.preventDefault();aIdx=(aIdx+1)%mots.length;cFr=0;tPts=[];rSb();uUI();}
   else if(e.code==='BracketLeft'){e.preventDefault();aIdx=(aIdx-1+mots.length)%mots.length;cFr=0;tPts=[];rSb();uUI();}
+  else if(e.code==='KeyY'){e.preventDefault();setLabel('keep');}
+  else if(e.code==='KeyN'){e.preventDefault();setLabel('abort');}
 });
 
 // ── Render Loop ──
