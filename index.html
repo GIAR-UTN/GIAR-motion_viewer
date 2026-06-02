@@ -1034,37 +1034,6 @@ function clearRobot() {
   }
 }
 
-// When the dropped folder contains several URDF/MJCF files (e.g.
-// unitree_description/urdf/ which sits next to g1/, go2/, sdk1/), the
-// previous "first one wins" rule was nondeterministic and often picked the
-// quadruped. Score and pick: humanoid path +100, quadruped path -100,
-// MJCF root +10, ties by alpha. All candidates are logged so a wrong pick
-// is obvious from devtools.
-var HUMANOID_HINT = /(?:^|[\/_-])(?:g1|h1|h1_2|humanoid|omni|sonic|booster|t1|talos|adam|tienkung|toddy|kuavo|hightorque|engineai|fourier|berkeley_humanoid|pal_|ultra)(?:[\/_.-]|$)/i;
-var QUADRUPED_HINT = /(?:^|[\/_-])(?:go1|go2|aliengo|a1|anymal|spot|barkour|laikago|unitree_a1|unitree_go)(?:[\/_.-]|$)/i;
-function scoreDescription(path, text) {
-  var s = 0;
-  if (HUMANOID_HINT.test(path)) s += 100;
-  if (QUADRUPED_HINT.test(path)) s -= 100;
-  if (isMjcfText(text)) s += 10;
-  return s;
-}
-function pickDescription(cands) {
-  if (!cands.length) return null;
-  if (cands.length === 1) return cands[0];
-  var ranked = cands.slice().sort(function(a, b) {
-    var sa = scoreDescription(a.path, a.text);
-    var sb = scoreDescription(b.path, b.text);
-    if (sa !== sb) return sb - sa;
-    return a.path.localeCompare(b.path);
-  });
-  console.log('Found ' + cands.length + ' robot descriptions:');
-  ranked.forEach(function(c, i) {
-    console.log('  ' + (i === 0 ? '→ ' : '  ') + c.path + ' (score=' + scoreDescription(c.path, c.text) + ')');
-  });
-  return ranked[0];
-}
-
 function loadRobot(descText, stlMap) {
   clearRobot();
   var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
@@ -1410,16 +1379,15 @@ document.body.addEventListener('drop',function(e){
 });
 
 function procEntries(entries) {
-  var stl={}, npz=[], pkl=[], descCands=[], pend=0, finished=false;
+  var stl={}, npz=[], pkl=[], descText=null, pend=0, finished=false;
   var to=$('to');to.style.display='block';to.textContent='Scanning...';
 
   function done(){
     if(pend>0||finished)return;
     finished=true;
     to.style.display='none';
-    var chosen = pickDescription(descCands);
-    if(chosen && Object.keys(stl).length) {
-      try { loadRobot(chosen.text, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
+    if(descText && Object.keys(stl).length) {
+      try { loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
     }
     if(npz.length) loadNPZ(npz);
     if(pkl.length) loadPKL(pkl);
@@ -1430,7 +1398,6 @@ function procEntries(entries) {
       pend++;
       en.file(function(f) {
         var lo = f.name.toLowerCase();
-        var pathHint = en.fullPath || f.name;
         if (lo.endsWith('.stl')) {
           var r = new FileReader();
           r.onload = function(ev) { stl[lo] = ev.target.result; pend--; done(); };
@@ -1439,7 +1406,11 @@ function procEntries(entries) {
         } else if (lo.endsWith('.urdf') || lo.endsWith('.xml')) {
           var r2 = new FileReader();
           r2.onload = function(ev) {
-            descCands.push({ path: pathHint, text: ev.target.result });
+            var txt = ev.target.result;
+            // If multiple desc files dropped, prefer the one whose root element
+            // is actually <mujoco>; otherwise keep the first one read.
+            if (!descText) descText = txt;
+            else if (isMjcfText(txt)) descText = txt;
             pend--; done();
           };
           r2.onerror = function() { pend--; done(); };
