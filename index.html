@@ -113,6 +113,12 @@
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
   .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px}
+  .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
+  .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
+  .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
+  .sb-tab.act{background:rgba(45,154,170,.15);border-color:var(--cyan);color:var(--cyan)}
+  .sb-tab .sb-tc{margin-left:4px;color:var(--t3);font-size:9px}
+  .sb-tab.act .sb-tc{color:var(--cyan);opacity:.75}
   .sb-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .sb-i{padding:8px 14px;cursor:pointer;border-left:2px solid transparent;transition:all .12s}
   .sb-i:hover{background:var(--hover)}.sb-i.act{background:var(--active);border-left-color:var(--cyan)}
@@ -151,6 +157,8 @@
   .lbl{font-family:'IBM Plex Mono',monospace;font-size:8px;padding:1px 5px;border-radius:3px;margin-left:6px;text-transform:uppercase;letter-spacing:1px;vertical-align:middle}
   .lbl.keep{background:rgba(45,170,106,.2);color:var(--grn)}
   .lbl.abort{background:rgba(170,45,106,.2);color:var(--mag)}
+  .lbl.kpkl{background:rgba(45,154,170,.18);color:var(--cyan)}
+  .lbl.knpz{background:rgba(140,140,200,.16);color:#9aa6d0}
   .tb.keepon{background:rgba(45,170,106,.15);border-color:var(--grn);color:var(--grn)}
   .tb.dropon{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
 </style>
@@ -190,6 +198,7 @@
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
       <div class="sb-l" id="sbl">Motions</div>
+      <div class="sb-tabs" id="st"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
         <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl">+ Add motion</label>
@@ -1107,26 +1116,46 @@ cv.addEventListener('touchend',function(e){if(e.touches.length<2){drg=0;tch0=nul
 window.addEventListener('resize',function(){W=vp.clientWidth;H=vp.clientHeight;cam.aspect=W/H;cam.updateProjectionMatrix();rn.setSize(W,H);});
 
 // ── State ──
-var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false;
+var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all';
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
+function motKind(m){return m && m.raw ? 'pkl' : 'npz';}
 function rSb(){
   var el=$('sl');el.innerHTML='';
-  var actEl=null,labeled=0;
+  var counts={all:mots.length,pkl:0,npz:0},labeled={all:0,pkl:0,npz:0};
   for(var i=0;i<mots.length;i++){
-    var m=mots[i],d=document.createElement('div');
-    if(m.label)labeled++;
+    var k=motKind(mots[i]);counts[k]++;
+    if(mots[i].label){labeled.all++;labeled[k]++;}
+  }
+  var tabsEl=$('st');tabsEl.innerHTML='';
+  var tabs=[['all','All'],['npz','NPZ'],['pkl','PKL']];
+  tabs.forEach(function(t){
+    var key=t[0],lbl=t[1];
+    var b=document.createElement('button');
+    b.className='sb-tab'+(sbFilter===key?' act':'');
+    b.innerHTML=lbl+'<span class="sb-tc">'+counts[key]+'</span>';
+    b.setAttribute('data-f',key);
+    b.onclick=function(){sbFilter=this.getAttribute('data-f');rSb();};
+    tabsEl.appendChild(b);
+  });
+  var actEl=null;
+  for(var i=0;i<mots.length;i++){
+    var m=mots[i],k=motKind(m);
+    if(sbFilter!=='all'&&k!==sbFilter)continue;
+    var d=document.createElement('div');
     var badge=m.label==='keep'?'<span class="lbl keep">keep</span>':m.label==='abort'?'<span class="lbl abort">drop</span>':'';
+    var kindTag='<span class="lbl '+(k==='pkl'?'kpkl':'knpz')+'">'+k+'</span>';
     d.className='sb-i'+(i===aIdx?' act':'');
     var info=m.d||m.raw||{nF:0,fps:0};
     var meta=info.nF?(info.nF+'f\u00b7'+info.fps+'fps\u00b7'+(info.nF/info.fps).toFixed(1)+'s'):'\u2026';
-    if(!m.d&&m.raw)meta+=' \u00b7 awaiting URDF';
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+badge+'</div><div class="sb-m">'+meta+'</div>';
+    if(!m.d&&m.raw)meta+=' \u00b7 awaiting robot';
+    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
     d.setAttribute('data-i',i);
     d.onclick=function(){aIdx=parseInt(this.getAttribute('data-i'));cFr=0;tPts=[];rSb();uUI();};
     el.appendChild(d);
     if(i===aIdx)actEl=d;
   }
-  $('sbl').textContent=mots.length?'Motions \u00b7 '+labeled+'/'+mots.length:'Motions';
+  var headLbl=sbFilter==='all'?'Motions':sbFilter.toUpperCase();
+  $('sbl').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -1143,7 +1172,7 @@ function uUI(){
   $('bk').classList.toggle('keepon',mots[aIdx].label==='keep');
   $('bd').classList.toggle('dropon',mots[aIdx].label==='abort');
   if (meshLoaded && m.nB !== nBodies) {
-    $('ms').textContent = '\u26a0 URDF/NPZ mismatch: NPZ=' + m.nB + ' bodies, URDF=' + nBodies + ' bodies. Use a matching URDF.';
+    $('ms').textContent = '\u26a0 Body count mismatch: motion=' + m.nB + ', robot=' + nBodies + '. Use a matching URDF/MJCF.';
     $('ms').className = 'ms warn';
   }
 }
