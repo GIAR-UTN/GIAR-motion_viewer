@@ -185,10 +185,10 @@
 </div>
 
 <div id="app">
-  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF + meshes) + .npz / .pkl</span></div>
+  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF/MJCF + meshes) + .npz / .pkl</span></div>
   <div class="main">
     <div class="sb">
-      <div class="ms no" id="ms">No robot — drop folder with URDF + STL</div>
+      <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
       <div class="sb-l" id="sbl">Motions</div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
@@ -200,7 +200,7 @@
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
-      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
+      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
   </div>
@@ -214,7 +214,7 @@
     <button class="tb" id="bd">&#10007; Drop</button>
   </div>
 </div>
-<div class="drop" id="dr"><span>Drop here</span><span style="font-size:12px;opacity:.7">Robot folder (URDF + meshes) or .npz files</span></div>
+<div class="drop" id="dr"><span>Drop here</span><span style="font-size:12px;opacity:.7">Robot folder (URDF/MJCF + meshes) or .npz files</span></div>
 <div class="toast" id="to"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -301,6 +301,141 @@ function parseURDF(xmlStr) {
     if (!childSet[linkOrder[i]]) { root = linkOrder[i]; break; }
   }
   return { robotName:robotName, links:links, joints:joints, root:root };
+}
+
+// ── MJCF (MuJoCo XML) Parser — same output shape as parseURDF ──
+function parseMJCF(xmlStr) {
+  var doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
+  var mjcf = doc.querySelector('mujoco');
+  if (!mjcf) throw new Error('No <mujoco> element found');
+  var robotName = mjcf.getAttribute('model') || 'robot';
+
+  var compiler = mjcf.querySelector('compiler');
+  var angleUnit = compiler && compiler.getAttribute('angle') || 'radian';
+  var angleScale = (angleUnit === 'degree') ? Math.PI/180 : 1;
+
+  // Resolve mesh name → filename from <asset>
+  var meshTable = {};
+  var meshEls = mjcf.querySelectorAll('asset > mesh');
+  for (var i = 0; i < meshEls.length; i++) {
+    var mn = meshEls[i].getAttribute('name');
+    var mf = meshEls[i].getAttribute('file');
+    if (mn && mf) meshTable[mn] = mf.split('/').pop();
+  }
+
+  function parseVec(s, n, def) {
+    if (!s) return def.slice();
+    var v = s.trim().split(/\s+/).map(Number);
+    return v.length === n ? v : def.slice();
+  }
+  function quatWxyzToRpy(q) {
+    var w=q[0], x=q[1], y=q[2], z=q[3];
+    var roll  = Math.atan2(2*(w*x + y*z), 1 - 2*(x*x + y*y));
+    var sp = 2*(w*y - z*x);
+    var pitch = Math.abs(sp) >= 1 ? Math.sign(sp)*Math.PI/2 : Math.asin(sp);
+    var yaw   = Math.atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z));
+    return [roll, pitch, yaw];
+  }
+  function bodyOrientation(bodyEl) {
+    var q = bodyEl.getAttribute('quat');
+    if (q) return quatWxyzToRpy(parseVec(q, 4, [1,0,0,0]));
+    var e = bodyEl.getAttribute('euler');
+    if (e) {
+      var v = parseVec(e, 3, [0,0,0]);
+      return [v[0]*angleScale, v[1]*angleScale, v[2]*angleScale];
+    }
+    return [0,0,0];
+  }
+
+  var links = {};
+  var joints = [];
+  var rootLink = null;
+  var anonCounter = 0;
+  var unsupportedJointWarned = false;
+
+  function collectGeoms(bodyEl) {
+    var meshes = [], rgba = null, seen = {};
+    var kids = bodyEl.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].tagName !== 'geom') continue;
+      var mref = kids[i].getAttribute('mesh');
+      if (mref && meshTable[mref] && !seen[mref]) {
+        meshes.push(meshTable[mref]);
+        seen[mref] = true;
+      }
+      if (!rgba) {
+        var c = kids[i].getAttribute('rgba');
+        if (c) rgba = c;
+      }
+    }
+    return { meshes: meshes, rgba: rgba };
+  }
+
+  function processBody(bodyEl, parentName) {
+    var name = bodyEl.getAttribute('name');
+    if (!name) name = '__mjcf_body_' + (anonCounter++);
+    var pos = parseVec(bodyEl.getAttribute('pos'), 3, [0,0,0]);
+    var rpy = bodyOrientation(bodyEl);
+    var g = collectGeoms(bodyEl);
+    links[name] = { name: name, meshes: g.meshes, rgba: g.rgba, children: [] };
+
+    if (!parentName) {
+      // Top-level body under <worldbody> — this is the robot's root link.
+      // Any joints declared on this body (freejoint / 3×slide+ball) describe
+      // the free 6-DoF base and are driven by motion data, not the FK chain.
+      rootLink = rootLink || name;
+    } else {
+      // Inspect joints declared directly on this body
+      var jointEls = [];
+      var kids = bodyEl.children;
+      for (var i = 0; i < kids.length; i++) {
+        var tg = kids[i].tagName;
+        if (tg === 'joint' || tg === 'freejoint') jointEls.push(kids[i]);
+      }
+      var movable = null, multipleHinge = false;
+      for (var i = 0; i < jointEls.length; i++) {
+        var jt = jointEls[i].tagName === 'freejoint' ? 'free' : (jointEls[i].getAttribute('type') || 'hinge');
+        if (jt === 'hinge') {
+          if (movable) multipleHinge = true;
+          else movable = jointEls[i];
+        } else if (!unsupportedJointWarned && (jt === 'slide' || jt === 'ball' || jt === 'free')) {
+          console.warn('MJCF: ignoring '+jt+' joint on body "'+name+'" (only hinge joints are mapped to FK DoF)');
+          unsupportedJointWarned = true;
+        }
+      }
+      if (multipleHinge) {
+        console.warn('MJCF: body "'+name+'" has multiple hinge joints — only first is used');
+      }
+      var jName, jType, jAxis = [0,0,1];
+      if (movable) {
+        jType = 'revolute';
+        jName = movable.getAttribute('name') || (name + '_joint');
+        jAxis = parseVec(movable.getAttribute('axis'), 3, [0,0,1]);
+      } else {
+        jType = 'fixed';
+        jName = name + '_fixed';
+      }
+      var j = { name: jName, type: jType, parent: parentName, child: name, xyz: pos, rpy: rpy, axis: jAxis };
+      joints.push(j);
+      if (links[parentName]) links[parentName].children.push(j);
+    }
+
+    // Recurse into nested bodies
+    var kids2 = bodyEl.children;
+    for (var i = 0; i < kids2.length; i++) {
+      if (kids2[i].tagName === 'body') processBody(kids2[i], name);
+    }
+  }
+
+  var worldbody = mjcf.querySelector('worldbody');
+  if (!worldbody) throw new Error('MJCF has no <worldbody>');
+  var topKids = worldbody.children;
+  for (var i = 0; i < topKids.length; i++) {
+    if (topKids[i].tagName === 'body') processBody(topKids[i], null);
+  }
+  if (!rootLink) throw new Error('MJCF has no <body> under <worldbody>');
+
+  return { robotName: robotName, links: links, joints: joints, root: rootLink };
 }
 
 // ── BFS Body Ordering (matches IsaacLab) ──
@@ -798,9 +933,10 @@ function clearRobot() {
   }
 }
 
-function loadRobot(urdfText, stlMap) {
+function loadRobot(descText, stlMap) {
   clearRobot();
-  var urdf = parseURDF(urdfText);
+  var head = descText.slice(0, 400);
+  var urdf = /<mujoco\b/i.test(head) ? parseMJCF(descText) : parseURDF(descText);
   var bodies = computeBodyOrder(urdf);
   nBodies = bodies.length;
 
@@ -1108,15 +1244,15 @@ document.body.addEventListener('drop',function(e){
 });
 
 function procEntries(entries) {
-  var stl={}, npz=[], pkl=[], urdfText=null, pend=0, finished=false;
+  var stl={}, npz=[], pkl=[], descText=null, pend=0, finished=false;
   var to=$('to');to.style.display='block';to.textContent='Scanning...';
 
   function done(){
     if(pend>0||finished)return;
     finished=true;
     to.style.display='none';
-    if(urdfText && Object.keys(stl).length) {
-      try { loadRobot(urdfText, stl); } catch(e) { console.error('URDF load error:', e); $('ms').textContent='URDF error: '+e.message;$('ms').className='ms warn'; }
+    if(descText && Object.keys(stl).length) {
+      try { loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
     }
     if(npz.length) loadNPZ(npz);
     if(pkl.length) loadPKL(pkl);
@@ -1132,9 +1268,16 @@ function procEntries(entries) {
           r.onload = function(ev) { stl[lo] = ev.target.result; pend--; done(); };
           r.onerror = function() { pend--; done(); };
           r.readAsArrayBuffer(f);
-        } else if (lo.endsWith('.urdf')) {
+        } else if (lo.endsWith('.urdf') || lo.endsWith('.xml')) {
           var r2 = new FileReader();
-          r2.onload = function(ev) { urdfText = ev.target.result; pend--; done(); };
+          r2.onload = function(ev) {
+            var txt = ev.target.result;
+            // If multiple desc files dropped, prefer MJCF (.xml) over fallback URDF only when
+            // it actually contains <mujoco>; otherwise prefer the first one read.
+            if (!descText) descText = txt;
+            else if (/<mujoco\b/i.test(txt.slice(0,400))) descText = txt;
+            pend--; done();
+          };
           r2.onerror = function() { pend--; done(); };
           r2.readAsText(f);
         } else if (lo.endsWith('.npz')) {
@@ -1162,31 +1305,31 @@ function procEntries(entries) {
 }
 
 function procFileList(files) {
-  var stl={}, npzF=[], pklF=[], stlF=[], urdfFile=null;
+  var stl={}, npzF=[], pklF=[], stlF=[], descFile=null;
   for(var i=0;i<files.length;i++){
     var lo=files[i].name.toLowerCase();
     if(lo.endsWith('.stl')) stlF.push(files[i]);
-    else if(lo.endsWith('.urdf')) urdfFile=files[i];
+    else if(lo.endsWith('.urdf') || lo.endsWith('.xml')) descFile=files[i];
     else if(lo.endsWith('.npz')) npzF.push(files[i]);
     else if(lo.endsWith('.pkl')) pklF.push(files[i]);
   }
-  if (urdfFile && stlF.length) {
-    var ld=0, urdfText=null;
+  if (descFile && stlF.length) {
+    var ld=0, descText=null;
     var r0=new FileReader();
     r0.onload=function(ev){
-      urdfText=ev.target.result;
+      descText=ev.target.result;
       if(ld===stlF.length) finalize();
     };
-    r0.readAsText(urdfFile);
+    r0.readAsText(descFile);
     for(var s=0;s<stlF.length;s++){
       (function(f){
         var r=new FileReader();
-        r.onload=function(ev){stl[f.name.toLowerCase()]=ev.target.result;ld++;if(ld===stlF.length && urdfText) finalize();};
+        r.onload=function(ev){stl[f.name.toLowerCase()]=ev.target.result;ld++;if(ld===stlF.length && descText) finalize();};
         r.readAsArrayBuffer(f);
       })(stlF[s]);
     }
     function finalize(){
-      try { loadRobot(urdfText, stl); } catch(e) { console.error(e); }
+      try { loadRobot(descText, stl); } catch(e) { console.error(e); }
       if(npzF.length) loadNPZ(npzF);
       if(pklF.length) loadPKL(pklF);
     }
