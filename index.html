@@ -383,7 +383,13 @@ function rpyToQuaternion(roll, pitch, yaw) {
 // ── NPZ/NPY Parser ──
 function readU32(b,o){return(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;}
 function readU64(b,o){return readU32(b,o)+readU32(b,o+4)*0x100000000;}
-function parseNPZ(ab) {
+async function inflateRaw(u8) {
+  var ds=new DecompressionStream('deflate-raw');
+  var stream=new Blob([u8]).stream().pipeThrough(ds);
+  var buf=await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+async function parseNPZ(ab) {
   var b=new Uint8Array(ab),r={},o=0;
   while(o+30<b.length){
     if(b[o]!==80||b[o+1]!==75||b[o+2]!==3||b[o+3]!==4)break;
@@ -404,8 +410,14 @@ function parseNPZ(ab) {
       }
     }
     var ds=o+30+fl+el;
-    if(fn.indexOf('.npy')===fn.length-4&&cm===0&&cs>0){
-      try{r[fn.slice(0,-4)]=parseNPY(b.slice(ds,ds+cs));}catch(e){}
+    if(fn.indexOf('.npy')===fn.length-4&&cs>0){
+      try{
+        var payload=b.slice(ds,ds+cs),data;
+        if(cm===0)data=payload;
+        else if(cm===8)data=await inflateRaw(payload);
+        else throw new Error('unsupported zip compression method '+cm);
+        r[fn.slice(0,-4)]=parseNPY(data);
+      }catch(e){console.warn('NPZ entry skipped: '+fn,e);}
     }
     o=ds+cs;
   }
@@ -729,9 +741,9 @@ function loadNPZ(files){
     to.textContent='Loading '+(ix+1)+'/'+nf.length+': '+f.name;
     ix++;
     var rd=new FileReader();
-    rd.onload=function(ev){
+    rd.onload=async function(ev){
       try{
-        var a=parseNPZ(ev.target.result);
+        var a=await parseNPZ(ev.target.result);
         if(a.body_pos_w){
           var d=extractMotion(a);
           mots.push({name:f.name.replace('.npz',''),d:d,label:null});
