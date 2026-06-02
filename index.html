@@ -653,6 +653,20 @@ function parsePickle(ab){
     }
     return{__cls__:cn,__args__:args};
   }
+  function _itemsize(dn){
+    if(dn==='f4'||dn==='<f4'||dn==='i4'||dn==='<i4'||dn==='u4'||dn==='<u4')return 4;
+    if(dn==='f8'||dn==='<f8'||dn==='i8'||dn==='<i8'||dn==='u8'||dn==='<u8')return 8;
+    if(dn==='i2'||dn==='<i2'||dn==='u2'||dn==='<u2')return 2;
+    if(dn==='i1'||dn==='<i1'||dn==='u1'||dn==='<u1'||dn==='b1')return 1;
+    return 0;
+  }
+  function _typedFromBytes(dn,ab2){
+    if(dn==='f4'||dn==='<f4')return new Float32Array(ab2);
+    if(dn==='f8'||dn==='<f8')return new Float64Array(ab2);
+    if(dn==='i4'||dn==='<i4')return new Int32Array(ab2);
+    if(dn==='i8'||dn==='<i8')return (typeof BigInt64Array!=='undefined')?new BigInt64Array(ab2):new Uint8Array(ab2);
+    return new Uint8Array(ab2);
+  }
   function _build(obj,state){
     if(obj&&obj.__ndarray__){
       if(Array.isArray(state)&&state.length>=5){
@@ -663,17 +677,40 @@ function parsePickle(ab){
         var raw=state[4];
         if(raw instanceof Uint8Array){
           var ab2=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
-          var dn=obj.dtype;
-          if(dn==='f4'||dn==='<f4')obj.data=new Float32Array(ab2);
-          else if(dn==='f8'||dn==='<f8')obj.data=new Float64Array(ab2);
-          else if(dn==='i4'||dn==='<i4')obj.data=new Int32Array(ab2);
-          else if(dn==='i8'||dn==='<i8')obj.data=(typeof BigInt64Array!=='undefined')?new BigInt64Array(ab2):raw;
-          else obj.data=raw;
+          obj.data=_typedFromBytes(obj.dtype,ab2);
           if(fortran&&obj.shape&&obj.shape.length>=2&&obj.data&&obj.data.length===obj.shape.reduce(function(a,b){return a*b;},1)){
             obj.data=fOrderToC(obj.shape,obj.data);
           }
         }
       }
+    }
+    // joblib NumpyArrayWrapper — raw array bytes follow inline in the stream
+    // after the BUILD opcode, optionally preceded by 1 byte of padding length
+    // and that many padding bytes for alignment.
+    else if(obj&&obj.__cls__==='joblib.numpy_pickle.NumpyArrayWrapper'&&state&&typeof state==='object'){
+      var shape=state.shape||[];
+      var dt2=state.dtype;
+      var dn=dt2&&dt2.__dtype__?dt2.__dtype__:'';
+      var order=state.order||'C';
+      var align=state.numpy_array_alignment_bytes;
+      if(align){
+        var padLen=b[pos++];
+        if(padLen)pos+=padLen;
+      }
+      var count=1;for(var s=0;s<shape.length;s++)count*=shape[s];
+      var isz=_itemsize(dn);
+      if(!isz)throw new Error('joblib wrapper: unsupported dtype '+dn);
+      var nbytes=count*isz;
+      var ab3=b.buffer.slice(b.byteOffset+pos,b.byteOffset+pos+nbytes);
+      pos+=nbytes;
+      var data=_typedFromBytes(dn,ab3);
+      if(order==='F'&&shape.length>=2&&data.length===count)data=fOrderToC(shape,data);
+      obj.__ndarray__=1;
+      obj.shape=shape;
+      obj.dtype=dn;
+      obj.data=data;
+      delete obj.__cls__;
+      delete obj.__args__;
     }
   }
   while(pos<b.length){
@@ -722,6 +759,22 @@ function parsePickle(ab){
   return stack.pop();
 }
 
+// Detects a multi-clip PKL (e.g. lafan_29dof.pkl): top-level is a plain
+// object whose values are motion dicts. Returns the list of clip keys, or
+// null if the top-level itself is a single motion.
+function detectMultiClip(d){
+  if(!d||typeof d!=='object'||d.__ndarray__||d.__cls__)return null;
+  var keys=Object.keys(d);
+  if(!keys.length)return null;
+  // single-motion dicts have root_pos / root_trans_offset at the top level
+  if(d.root_pos||d.root_trans_offset||d.dof_pos||d.dof)return null;
+  var first=d[keys[0]];
+  if(!first||typeof first!=='object'||first.__ndarray__)return null;
+  if(!(first.root_pos||first.root_trans_offset))return null;
+  if(!(first.dof_pos||first.dof))return null;
+  return keys;
+}
+
 function extractPKLMotion(d){
   var fps=(typeof d.fps==='number')?d.fps:(d.fps&&d.fps.data?d.fps.data[0]:50);
   var rootPos,rootRot,dofPos,nF,nD;
@@ -738,8 +791,8 @@ function extractPKLMotion(d){
       for(var j=0;j<nD;j++)dofPos[f*nD+j]=arr[off+7+j];
     }
   } else {
-    var rp=d.root_pos,rr=d.root_rot,dp=d.dof_pos;
-    if(!rp||!rr||!dp)throw new Error('PKL missing root_pos/root_rot/dof_pos');
+    var rp=d.root_pos||d.root_trans_offset,rr=d.root_rot,dp=d.dof_pos||d.dof;
+    if(!rp||!rr||!dp)throw new Error('PKL missing root_pos(_trans_offset)/root_rot/dof(_pos)');
     nF=rp.shape[0];nD=dp.shape[1];
     var toF32=function(x){return x instanceof Float32Array?x:new Float32Array(x);};
     rootPos=toF32(rp.data);
@@ -1244,8 +1297,23 @@ function loadPKL(files){
     rd.onload=function(ev){
       try{
         var pk=parsePickle(ev.target.result);
-        var raw=extractPKLMotion(pk);
-        mots.push({name:f.name.replace(/\.pkl$/i,''),d:null,raw:raw,label:null});
+        var base=f.name.replace(/\.pkl$/i,'');
+        var clips=detectMultiClip(pk);
+        if(clips){
+          var ok=0;
+          for(var ci=0;ci<clips.length;ci++){
+            var key=clips[ci];
+            try{
+              var raw=extractPKLMotion(pk[key]);
+              mots.push({name:base+'::'+key,d:null,raw:raw,label:null});
+              ok++;
+            }catch(e){console.warn(base+'::'+key+' skipped:',e.message);}
+          }
+          console.log(base+': loaded '+ok+'/'+clips.length+' clips');
+        } else {
+          var raw=extractPKLMotion(pk);
+          mots.push({name:base,d:null,raw:raw,label:null});
+        }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
     };
