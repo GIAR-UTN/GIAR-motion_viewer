@@ -113,6 +113,12 @@
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
   .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px}
+  .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
+  .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
+  .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
+  .sb-tab.act{background:rgba(45,154,170,.15);border-color:var(--cyan);color:var(--cyan)}
+  .sb-tab .sb-tc{margin-left:4px;color:var(--t3);font-size:9px}
+  .sb-tab.act .sb-tc{color:var(--cyan);opacity:.75}
   .sb-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .sb-i{padding:8px 14px;cursor:pointer;border-left:2px solid transparent;transition:all .12s}
   .sb-i:hover{background:var(--hover)}.sb-i.act{background:var(--active);border-left-color:var(--cyan)}
@@ -151,6 +157,8 @@
   .lbl{font-family:'IBM Plex Mono',monospace;font-size:8px;padding:1px 5px;border-radius:3px;margin-left:6px;text-transform:uppercase;letter-spacing:1px;vertical-align:middle}
   .lbl.keep{background:rgba(45,170,106,.2);color:var(--grn)}
   .lbl.abort{background:rgba(170,45,106,.2);color:var(--mag)}
+  .lbl.kpkl{background:rgba(45,154,170,.18);color:var(--cyan)}
+  .lbl.knpz{background:rgba(140,140,200,.16);color:#9aa6d0}
   .tb.keepon{background:rgba(45,170,106,.15);border-color:var(--grn);color:var(--grn)}
   .tb.dropon{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
 </style>
@@ -185,22 +193,23 @@
 </div>
 
 <div id="app">
-  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF + meshes) + .npz</span></div>
+  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF/MJCF + meshes) + .npz / .pkl</span></div>
   <div class="main">
     <div class="sb">
-      <div class="ms no" id="ms">No robot — drop folder with URDF + STL</div>
+      <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
       <div class="sb-l" id="sbl">Motions</div>
+      <div class="sb-tabs" id="st"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
-        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz">+ Add .npz</label>
-        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz" webkitdirectory>+ Add folder</label>
+        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl">+ Add motion</label>
+        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz,.pkl" webkitdirectory>+ Add folder</label>
         <button class="sb-b" id="bx">&#11015; Export CSV</button>
       </div>
     </div>
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
-      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF + STL meshes</b><br>Step 2: Drag <b>.npz</b> motion files</div></div>
+      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
   </div>
@@ -214,7 +223,7 @@
     <button class="tb" id="bd">&#10007; Drop</button>
   </div>
 </div>
-<div class="drop" id="dr"><span>Drop here</span><span style="font-size:12px;opacity:.7">Robot folder (URDF + meshes) or .npz files</span></div>
+<div class="drop" id="dr"><span>Drop here</span><span style="font-size:12px;opacity:.7">Robot folder (URDF/MJCF + meshes) or .npz files</span></div>
 <div class="toast" id="to"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -284,7 +293,13 @@ function parseURDF(xmlStr) {
       if (xs) xyz = xs.trim().split(/\s+/).map(Number);
       if (rs) rpy = rs.trim().split(/\s+/).map(Number);
     }
-    var j = { name:name, type:type, parent:pName, child:cName, xyz:xyz, rpy:rpy };
+    var axis = [0,0,1];
+    var axisEl = el.querySelector('axis');
+    if (axisEl) {
+      var as = axisEl.getAttribute('xyz');
+      if (as) axis = as.trim().split(/\s+/).map(Number);
+    }
+    var j = { name:name, type:type, parent:pName, child:cName, xyz:xyz, rpy:rpy, axis:axis };
     joints.push(j);
     childSet[cName] = true;
     if (links[pName]) links[pName].children.push(j);
@@ -295,6 +310,152 @@ function parseURDF(xmlStr) {
     if (!childSet[linkOrder[i]]) { root = linkOrder[i]; break; }
   }
   return { robotName:robotName, links:links, joints:joints, root:root };
+}
+
+// True only when the root element of the XML is <mujoco>. URDF often embeds
+// a <mujoco><compiler.../></mujoco> hint block, so a plain substring check
+// would mis-route Solidworks-exported URDFs.
+function isMjcfText(text) {
+  try {
+    var doc = new DOMParser().parseFromString(text, 'text/xml');
+    var de = doc.documentElement;
+    return !!(de && de.tagName && de.tagName.toLowerCase() === 'mujoco');
+  } catch(e) { return false; }
+}
+
+// ── MJCF (MuJoCo XML) Parser — same output shape as parseURDF ──
+function parseMJCF(xmlStr) {
+  var doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
+  var mjcf = doc.querySelector('mujoco');
+  if (!mjcf) throw new Error('No <mujoco> element found');
+  var robotName = mjcf.getAttribute('model') || 'robot';
+
+  var compiler = mjcf.querySelector('compiler');
+  var angleUnit = compiler && compiler.getAttribute('angle') || 'radian';
+  var angleScale = (angleUnit === 'degree') ? Math.PI/180 : 1;
+
+  // Resolve mesh name → filename from <asset>
+  var meshTable = {};
+  var meshEls = mjcf.querySelectorAll('asset > mesh');
+  for (var i = 0; i < meshEls.length; i++) {
+    var mn = meshEls[i].getAttribute('name');
+    var mf = meshEls[i].getAttribute('file');
+    if (mn && mf) meshTable[mn] = mf.split('/').pop();
+  }
+
+  function parseVec(s, n, def) {
+    if (!s) return def.slice();
+    var v = s.trim().split(/\s+/).map(Number);
+    return v.length === n ? v : def.slice();
+  }
+  function quatWxyzToRpy(q) {
+    var w=q[0], x=q[1], y=q[2], z=q[3];
+    var roll  = Math.atan2(2*(w*x + y*z), 1 - 2*(x*x + y*y));
+    var sp = 2*(w*y - z*x);
+    var pitch = Math.abs(sp) >= 1 ? Math.sign(sp)*Math.PI/2 : Math.asin(sp);
+    var yaw   = Math.atan2(2*(w*z + x*y), 1 - 2*(y*y + z*z));
+    return [roll, pitch, yaw];
+  }
+  function bodyOrientation(bodyEl) {
+    var q = bodyEl.getAttribute('quat');
+    if (q) return quatWxyzToRpy(parseVec(q, 4, [1,0,0,0]));
+    var e = bodyEl.getAttribute('euler');
+    if (e) {
+      var v = parseVec(e, 3, [0,0,0]);
+      return [v[0]*angleScale, v[1]*angleScale, v[2]*angleScale];
+    }
+    return [0,0,0];
+  }
+
+  var links = {};
+  var joints = [];
+  var rootLink = null;
+  var anonCounter = 0;
+  var unsupportedJointWarned = false;
+
+  function collectGeoms(bodyEl) {
+    var meshes = [], rgba = null, seen = {};
+    var kids = bodyEl.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].tagName !== 'geom') continue;
+      var mref = kids[i].getAttribute('mesh');
+      if (mref && meshTable[mref] && !seen[mref]) {
+        meshes.push(meshTable[mref]);
+        seen[mref] = true;
+      }
+      if (!rgba) {
+        var c = kids[i].getAttribute('rgba');
+        if (c) rgba = c;
+      }
+    }
+    return { meshes: meshes, rgba: rgba };
+  }
+
+  function processBody(bodyEl, parentName) {
+    var name = bodyEl.getAttribute('name');
+    if (!name) name = '__mjcf_body_' + (anonCounter++);
+    var pos = parseVec(bodyEl.getAttribute('pos'), 3, [0,0,0]);
+    var rpy = bodyOrientation(bodyEl);
+    var g = collectGeoms(bodyEl);
+    links[name] = { name: name, meshes: g.meshes, rgba: g.rgba, children: [] };
+
+    if (!parentName) {
+      // Top-level body under <worldbody> — this is the robot's root link.
+      // Any joints declared on this body (freejoint / 3×slide+ball) describe
+      // the free 6-DoF base and are driven by motion data, not the FK chain.
+      rootLink = rootLink || name;
+    } else {
+      // Inspect joints declared directly on this body
+      var jointEls = [];
+      var kids = bodyEl.children;
+      for (var i = 0; i < kids.length; i++) {
+        var tg = kids[i].tagName;
+        if (tg === 'joint' || tg === 'freejoint') jointEls.push(kids[i]);
+      }
+      var movable = null, multipleHinge = false;
+      for (var i = 0; i < jointEls.length; i++) {
+        var jt = jointEls[i].tagName === 'freejoint' ? 'free' : (jointEls[i].getAttribute('type') || 'hinge');
+        if (jt === 'hinge') {
+          if (movable) multipleHinge = true;
+          else movable = jointEls[i];
+        } else if (!unsupportedJointWarned && (jt === 'slide' || jt === 'ball' || jt === 'free')) {
+          console.warn('MJCF: ignoring '+jt+' joint on body "'+name+'" (only hinge joints are mapped to FK DoF)');
+          unsupportedJointWarned = true;
+        }
+      }
+      if (multipleHinge) {
+        console.warn('MJCF: body "'+name+'" has multiple hinge joints — only first is used');
+      }
+      var jName, jType, jAxis = [0,0,1];
+      if (movable) {
+        jType = 'revolute';
+        jName = movable.getAttribute('name') || (name + '_joint');
+        jAxis = parseVec(movable.getAttribute('axis'), 3, [0,0,1]);
+      } else {
+        jType = 'fixed';
+        jName = name + '_fixed';
+      }
+      var j = { name: jName, type: jType, parent: parentName, child: name, xyz: pos, rpy: rpy, axis: jAxis };
+      joints.push(j);
+      if (links[parentName]) links[parentName].children.push(j);
+    }
+
+    // Recurse into nested bodies
+    var kids2 = bodyEl.children;
+    for (var i = 0; i < kids2.length; i++) {
+      if (kids2[i].tagName === 'body') processBody(kids2[i], name);
+    }
+  }
+
+  var worldbody = mjcf.querySelector('worldbody');
+  if (!worldbody) throw new Error('MJCF has no <worldbody>');
+  var topKids = worldbody.children;
+  for (var i = 0; i < topKids.length; i++) {
+    if (topKids[i].tagName === 'body') processBody(topKids[i], null);
+  }
+  if (!rootLink) throw new Error('MJCF has no <body> under <worldbody>');
+
+  return { robotName: robotName, links: links, joints: joints, root: rootLink };
 }
 
 // ── BFS Body Ordering (matches IsaacLab) ──
@@ -383,7 +544,13 @@ function rpyToQuaternion(roll, pitch, yaw) {
 // ── NPZ/NPY Parser ──
 function readU32(b,o){return(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;}
 function readU64(b,o){return readU32(b,o)+readU32(b,o+4)*0x100000000;}
-function parseNPZ(ab) {
+async function inflateRaw(u8) {
+  var ds=new DecompressionStream('deflate-raw');
+  var stream=new Blob([u8]).stream().pipeThrough(ds);
+  var buf=await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+async function parseNPZ(ab) {
   var b=new Uint8Array(ab),r={},o=0;
   while(o+30<b.length){
     if(b[o]!==80||b[o+1]!==75||b[o+2]!==3||b[o+3]!==4)break;
@@ -404,12 +571,36 @@ function parseNPZ(ab) {
       }
     }
     var ds=o+30+fl+el;
-    if(fn.indexOf('.npy')===fn.length-4&&cm===0&&cs>0){
-      try{r[fn.slice(0,-4)]=parseNPY(b.slice(ds,ds+cs));}catch(e){}
+    if(fn.indexOf('.npy')===fn.length-4&&cs>0){
+      try{
+        var payload=b.slice(ds,ds+cs),data;
+        if(cm===0)data=payload;
+        else if(cm===8)data=await inflateRaw(payload);
+        else throw new Error('unsupported zip compression method '+cm);
+        r[fn.slice(0,-4)]=parseNPY(data);
+      }catch(e){console.warn('NPZ entry skipped: '+fn,e);}
     }
     o=ds+cs;
   }
   return r;
+}
+function fOrderToC(shape,data){
+  var nd=shape.length;
+  if(nd<2)return data;
+  var n=1;for(var i=0;i<nd;i++)n*=shape[i];
+  if(data.length!==n)return data;
+  var out=new data.constructor(n);
+  var stC=new Array(nd),stF=new Array(nd);
+  stC[nd-1]=1;for(var i=nd-2;i>=0;i--)stC[i]=stC[i+1]*shape[i+1];
+  stF[0]=1;for(var i=1;i<nd;i++)stF[i]=stF[i-1]*shape[i-1];
+  var idx=new Array(nd);for(var i=0;i<nd;i++)idx[i]=0;
+  for(var k=0;k<n;k++){
+    var fo=0,co=0;
+    for(var d=0;d<nd;d++){fo+=idx[d]*stF[d];co+=idx[d]*stC[d];}
+    out[co]=data[fo];
+    for(var d=nd-1;d>=0;d--){idx[d]++;if(idx[d]<shape[d])break;idx[d]=0;}
+  }
+  return out;
 }
 function parseNPY(b) {
   if(b[0]!==147||b[1]!==78)throw 0;
@@ -417,21 +608,265 @@ function parseNPY(b) {
   if(mj>=2){hl=(b[8]|(b[9]<<8)|(b[10]<<16)|(b[11]<<24))>>>0;hs=12;}
   else{hl=b[8]|(b[9]<<8);hs=10;}
   var h='';for(var i=hs;i<hs+hl;i++)h+=String.fromCharCode(b[i]);
-  var dm=h.match(/'descr'\s*:\s*'([^']+)'/),sm=h.match(/'shape'\s*:\s*\(([^)]*)\)/);
+  var dm=h.match(/'descr'\s*:\s*'([^']+)'/),sm=h.match(/'shape'\s*:\s*\(([^)]*)\)/),fm=h.match(/'fortran_order'\s*:\s*(True|False)/);
   if(!dm||!sm)throw 0;
-  var d=dm[1],sh=[];
+  var d=dm[1],sh=[],fo=fm&&fm[1]==='True';
   sm[1].split(',').forEach(function(s){s=s.trim();if(s)sh.push(parseInt(s));});
   var doff=hs+hl;
   var ab=b.buffer.slice(b.byteOffset+doff,b.byteOffset+b.length);
-  if(d.indexOf('f4')>=0)return{shape:sh,data:new Float32Array(ab)};
-  if(d.indexOf('i4')>=0)return{shape:sh,data:new Int32Array(ab)};
-  if(d.indexOf('f8')>=0)return{shape:sh,data:new Float64Array(ab)};
-  return{shape:sh,data:new Uint8Array(ab)};
+  var arr;
+  if(d.indexOf('f4')>=0)arr=new Float32Array(ab);
+  else if(d.indexOf('i4')>=0)arr=new Int32Array(ab);
+  else if(d.indexOf('f8')>=0)arr=new Float64Array(ab);
+  else arr=new Uint8Array(ab);
+  if(fo)arr=fOrderToC(sh,arr);
+  return{shape:sh,data:arr};
 }
 function extractMotion(a) {
   var fps=a.fps?a.fps.data[0]:50;
   var bp=a.body_pos_w,bq=a.body_quat_w;
   return{fps:fps,nF:bp.shape[0],nB:bp.shape[1],pF:bp.data,qF:bq?bq.data:null};
+}
+
+// ── Pickle Parser (subset for dict-of-ndarrays) ──
+var PICKLE_MARK={__m__:1};
+function parsePickle(ab){
+  var b=new Uint8Array(ab),dv=new DataView(b.buffer,b.byteOffset,b.byteLength);
+  var stack=[],memo=[],pos=0,td=new TextDecoder('utf-8');
+  function _str(n){var s=td.decode(b.subarray(pos,pos+n));pos+=n;return s;}
+  function _bytes(n){var s=b.subarray(pos,pos+n);pos+=n;return s;}
+  function _reduce(cls,args){
+    var cn=cls&&cls.__class__;
+    if(cn==='numpy.core.multiarray._reconstruct'||cn==='numpy._core.multiarray._reconstruct')return{__ndarray__:1};
+    if(cn==='numpy.dtype')return{__dtype__:(args&&typeof args[0]==='string')?args[0]:'O'};
+    if(cn==='numpy.core.multiarray.scalar'||cn==='numpy._core.multiarray.scalar'){
+      var dt=args[0],bs=args[1];
+      var dn=dt&&dt.__dtype__||'';
+      if(bs instanceof Uint8Array){
+        var ab2=bs.buffer.slice(bs.byteOffset,bs.byteOffset+bs.byteLength);
+        if(dn==='f4'||dn==='<f4')return new Float32Array(ab2)[0];
+        if(dn==='f8'||dn==='<f8')return new Float64Array(ab2)[0];
+        if(dn==='i4'||dn==='<i4')return new Int32Array(ab2)[0];
+        if(dn==='i8'||dn==='<i8')return Number(new BigInt64Array(ab2)[0]);
+      }
+      return 0;
+    }
+    return{__cls__:cn,__args__:args};
+  }
+  function _build(obj,state){
+    if(obj&&obj.__ndarray__){
+      if(Array.isArray(state)&&state.length>=5){
+        obj.shape=state[1];
+        var dt=state[2];
+        obj.dtype=dt&&dt.__dtype__?dt.__dtype__:'O';
+        var fortran=!!state[3];
+        var raw=state[4];
+        if(raw instanceof Uint8Array){
+          var ab2=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
+          var dn=obj.dtype;
+          if(dn==='f4'||dn==='<f4')obj.data=new Float32Array(ab2);
+          else if(dn==='f8'||dn==='<f8')obj.data=new Float64Array(ab2);
+          else if(dn==='i4'||dn==='<i4')obj.data=new Int32Array(ab2);
+          else if(dn==='i8'||dn==='<i8')obj.data=(typeof BigInt64Array!=='undefined')?new BigInt64Array(ab2):raw;
+          else obj.data=raw;
+          if(fortran&&obj.shape&&obj.shape.length>=2&&obj.data&&obj.data.length===obj.shape.reduce(function(a,b){return a*b;},1)){
+            obj.data=fOrderToC(obj.shape,obj.data);
+          }
+        }
+      }
+    }
+  }
+  while(pos<b.length){
+    var op=b[pos++];
+    switch(op){
+      case 0x80:pos++;break;
+      case 0x95:pos+=8;break;
+      case 0x94:memo.push(stack[stack.length-1]);break;
+      case 0x71:{var i=b[pos++];memo[i]=stack[stack.length-1];break;}
+      case 0x72:{var i=dv.getUint32(pos,true);pos+=4;memo[i]=stack[stack.length-1];break;}
+      case 0x68:stack.push(memo[b[pos++]]);break;
+      case 0x6a:{var i=dv.getUint32(pos,true);pos+=4;stack.push(memo[i]);break;}
+      case 0x7d:stack.push({});break;
+      case 0x29:stack.push([]);break;
+      case 0x4e:stack.push(null);break;
+      case 0x88:stack.push(true);break;
+      case 0x89:stack.push(false);break;
+      case 0x4a:{var v=dv.getInt32(pos,true);pos+=4;stack.push(v);break;}
+      case 0x4b:stack.push(b[pos++]);break;
+      case 0x4d:{var v=dv.getUint16(pos,true);pos+=2;stack.push(v);break;}
+      case 0x47:{var v=dv.getFloat64(pos,false);pos+=8;stack.push(v);break;}
+      case 0x8c:{var n=b[pos++];stack.push(_str(n));break;}
+      case 0x8d:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_str(n));break;}
+      case 0x42:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_bytes(n));break;}
+      case 0x43:{var n=b[pos++];stack.push(_bytes(n));break;}
+      case 0x28:stack.push(PICKLE_MARK);break;
+      case 0x74:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var t=stack.slice(i+1);stack.length=i;stack.push(t);break;}
+      case 0x85:{var v=stack.pop();stack.push([v]);break;}
+      case 0x86:{var b1=stack.pop(),a1=stack.pop();stack.push([a1,b1]);break;}
+      case 0x87:{var c1=stack.pop(),b1=stack.pop(),a1=stack.pop();stack.push([a1,b1,c1]);break;}
+      case 0x75:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var d=stack[i-1];for(var k=i+1;k<stack.length;k+=2)d[stack[k]]=stack[k+1];stack.length=i;break;}
+      case 0x73:{var v=stack.pop(),k=stack.pop();stack[stack.length-1][k]=v;break;}
+      case 0x65:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var lst=stack[i-1];for(var k=i+1;k<stack.length;k++)lst.push(stack[k]);stack.length=i;break;}
+      case 0x5d:stack.push([]);break;
+      case 0x61:{var v=stack.pop();stack[stack.length-1].push(v);break;}
+      case 0x93:{var name=stack.pop(),mod=stack.pop();stack.push({__class__:mod+'.'+name});break;}
+      case 0x63:{var mod='',name='',c;while((c=b[pos++])!==0x0a)mod+=String.fromCharCode(c);while((c=b[pos++])!==0x0a)name+=String.fromCharCode(c);stack.push({__class__:mod+'.'+name});break;}
+      case 0x52:{var args=stack.pop(),cls=stack.pop();stack.push(_reduce(cls,args));break;}
+      case 0x62:{var state=stack.pop();_build(stack[stack.length-1],state);break;}
+      case 0x81:{var args=stack.pop(),cls=stack.pop();stack.push(_reduce(cls,args));break;}
+      case 0x8a:{var n=b[pos++],v=0,sh=0;for(var k=0;k<n;k++){v+=b[pos++]*Math.pow(2,sh);sh+=8;}if(n>0&&(b[pos-1]&0x80))v-=Math.pow(2,n*8);stack.push(v);break;}
+      case 0x2e:return stack.pop();
+      default:throw new Error('unsupported pickle opcode 0x'+op.toString(16)+' at '+(pos-1));
+    }
+  }
+  return stack.pop();
+}
+
+function extractPKLMotion(d){
+  var fps=(typeof d.fps==='number')?d.fps:(d.fps&&d.fps.data?d.fps.data[0]:50);
+  var rootPos,rootRot,dofPos,nF,nD;
+  if(d&&d.__ndarray__){
+    var arr=d.data,sh=d.shape;
+    nF=sh[0];var stride=sh[1];nD=stride-7;
+    rootPos=new Float32Array(nF*3);
+    rootRot=new Float32Array(nF*4);
+    dofPos=new Float32Array(nF*nD);
+    for(var f=0;f<nF;f++){
+      var off=f*stride;
+      rootPos[f*3]=arr[off];rootPos[f*3+1]=arr[off+1];rootPos[f*3+2]=arr[off+2];
+      rootRot[f*4]=arr[off+3];rootRot[f*4+1]=arr[off+4];rootRot[f*4+2]=arr[off+5];rootRot[f*4+3]=arr[off+6];
+      for(var j=0;j<nD;j++)dofPos[f*nD+j]=arr[off+7+j];
+    }
+  } else {
+    var rp=d.root_pos,rr=d.root_rot,dp=d.dof_pos;
+    if(!rp||!rr||!dp)throw new Error('PKL missing root_pos/root_rot/dof_pos');
+    nF=rp.shape[0];nD=dp.shape[1];
+    var toF32=function(x){return x instanceof Float32Array?x:new Float32Array(x);};
+    rootPos=toF32(rp.data);
+    dofPos=toF32(dp.data);
+    var rrd=toF32(rr.data);
+    rootRot=new Float32Array(nF*4);
+    for(var f=0;f<nF;f++){
+      rootRot[f*4]  =rrd[f*4+3];
+      rootRot[f*4+1]=rrd[f*4+0];
+      rootRot[f*4+2]=rrd[f*4+1];
+      rootRot[f*4+3]=rrd[f*4+2];
+    }
+    var rbo=d.root_body_offset;
+    if(rbo){
+      var off3=rbo.data?rbo.data:rbo;
+      if(off3[0]||off3[1]||off3[2]){
+        for(var f=0;f<nF;f++){
+          rootPos[f*3]-=off3[0];rootPos[f*3+1]-=off3[1];rootPos[f*3+2]-=off3[2];
+        }
+      }
+    }
+  }
+  return{fps:fps,nF:nF,nD:nD,rootPos:rootPos,rootRot:rootRot,dofPos:dofPos,isPKL:true};
+}
+
+// ── PKL joint-order presets ──
+// PKL/MuJoCo save formats use MJCF body-tree DFS joint order. For most robots
+// the URDF document order matches the MJCF order, so no remap is needed.
+// Some MJCFs include joints the URDF doesn't (e.g. omni's shoe/head joints
+// padded with zeros) — for those, look up each URDF joint's PKL slot by name.
+// Keyed by DoF count; lookup falls back to URDF iteration order on a miss.
+var PKL_JOINT_PRESETS = {
+  // GMR omni.xml (33 entries) — used by *_omni.pkl, 4 slots are zero-padded
+  // for joints that omni7dof.urdf doesn't carry (shoe_pitch_l/r, head_yaw/pitch).
+  33: [
+    "hip_pitch_l_joint","hip_roll_l_joint","hip_yaw_l_joint","knee_pitch_l_joint","ankle_pitch_l_joint","ankle_roll_l_joint","shoe_pitch_l_joint",
+    "hip_pitch_r_joint","hip_roll_r_joint","hip_yaw_r_joint","knee_pitch_r_joint","ankle_pitch_r_joint","ankle_roll_r_joint","shoe_pitch_r_joint",
+    "waist_yaw_joint","waist_roll_joint","waist_pitch_joint",
+    "head_yaw_joint","head_pitch_joint",
+    "shoulder_pitch_l_joint","shoulder_roll_l_joint","shoulder_yaw_l_joint","elbow_pitch_l_joint","elbow_yaw_l_joint","wrist_pitch_l_joint","wrist_roll_l_joint",
+    "shoulder_pitch_r_joint","shoulder_roll_r_joint","shoulder_yaw_r_joint","elbow_pitch_r_joint","elbow_yaw_r_joint","wrist_pitch_r_joint","wrist_roll_r_joint"
+  ]
+};
+
+// ── Forward Kinematics (for DoF-based motions) ──
+function rpyToWxyz(r,p,y){
+  var cr=Math.cos(r/2),sr=Math.sin(r/2);
+  var cp=Math.cos(p/2),sp=Math.sin(p/2);
+  var cy=Math.cos(y/2),sy=Math.sin(y/2);
+  return[cr*cp*cy+sr*sp*sy,sr*cp*cy-cr*sp*sy,cr*sp*cy+sr*cp*sy,cr*cp*sy-sr*sp*cy];
+}
+function buildFKChain(urdf,bodies){
+  var jointDof={},dofIdx=0;
+  for(var i=0;i<urdf.joints.length;i++){
+    if(urdf.joints[i].type!=='fixed')jointDof[urdf.joints[i].name]=dofIdx++;
+  }
+  var bIdx={};
+  for(var i=0;i<bodies.length;i++)bIdx[bodies[i].name]=i;
+  var chain=new Array(bodies.length);for(var i=0;i<bodies.length;i++)chain[i]=null;
+  for(var i=0;i<urdf.joints.length;i++){
+    var j=urdf.joints[i];
+    if(j.type==='fixed')continue;
+    var ci=bIdx[j.child],pi=bIdx[j.parent];
+    if(ci===undefined||pi===undefined)continue;
+    var qo=rpyToWxyz(j.rpy[0],j.rpy[1],j.rpy[2]);
+    var ax=j.axis[0],ay=j.axis[1],az=j.axis[2];
+    var alen=Math.sqrt(ax*ax+ay*ay+az*az);
+    if(alen>1e-9){ax/=alen;ay/=alen;az/=alen;}else{ax=0;ay=0;az=1;}
+    chain[ci]={parent:pi,x:j.xyz[0],y:j.xyz[1],z:j.xyz[2],qow:qo[0],qox:qo[1],qoy:qo[2],qoz:qo[3],ax:ax,ay:ay,az:az,dofIdx:jointDof[j.name],name:j.name,type:j.type};
+  }
+  return{chain:chain,nDof:dofIdx};
+}
+function precomputeFK(fkInfo,raw){
+  var chain=fkInfo.chain,nB=chain.length,nF=raw.nF,nD=raw.nD;
+  var rp=raw.rootPos,rr=raw.rootRot,dp=raw.dofPos;
+  var preset=PKL_JOINT_PRESETS[nD],dofMap=null,mappedCount=0;
+  if(preset){
+    dofMap=new Int32Array(nB);
+    for(var i=0;i<nB;i++){
+      var ce=chain[i];if(!ce){dofMap[i]=-1;continue;}
+      var k=preset.indexOf(ce.name);
+      if(k>=0){dofMap[i]=k;mappedCount++;}
+      else dofMap[i]=ce.dofIdx;
+    }
+    console.log('PKL joint preset '+nD+' applied: '+mappedCount+'/'+(nB-1)+' URDF joints matched by name');
+  }
+  var pF=new Float32Array(nF*nB*3),qF=new Float32Array(nF*nB*4);
+  var bp=new Float32Array(nB*3),bq=new Float32Array(nB*4);
+  for(var f=0;f<nF;f++){
+    bp[0]=rp[f*3];bp[1]=rp[f*3+1];bp[2]=rp[f*3+2];
+    bq[0]=rr[f*4];bq[1]=rr[f*4+1];bq[2]=rr[f*4+2];bq[3]=rr[f*4+3];
+    for(var i=1;i<nB;i++){
+      var c=chain[i];
+      if(!c){bp[i*3]=0;bp[i*3+1]=0;bp[i*3+2]=0;bq[i*4]=1;bq[i*4+1]=0;bq[i*4+2]=0;bq[i*4+3]=0;continue;}
+      var pi=c.parent;
+      var dIdx=dofMap?dofMap[i]:c.dofIdx;
+      var angle=(dIdx>=0&&dIdx<nD)?dp[f*nD+dIdx]:0;
+      var pw=bq[pi*4],px=bq[pi*4+1],py=bq[pi*4+2],pz=bq[pi*4+3];
+      var vx=c.x,vy=c.y,vz=c.z;
+      var tx=2*(py*vz-pz*vy),ty=2*(pz*vx-px*vz),tz=2*(px*vy-py*vx);
+      bp[i*3]  =bp[pi*3]  +vx+pw*tx+py*tz-pz*ty;
+      bp[i*3+1]=bp[pi*3+1]+vy+pw*ty+pz*tx-px*tz;
+      bp[i*3+2]=bp[pi*3+2]+vz+pw*tz+px*ty-py*tx;
+      var h=angle*0.5,sh=Math.sin(h),ch=Math.cos(h);
+      var qaw=ch,qax=c.ax*sh,qay=c.ay*sh,qaz=c.az*sh;
+      var qow=c.qow,qox=c.qox,qoy=c.qoy,qoz=c.qoz;
+      var qlw=qow*qaw-qox*qax-qoy*qay-qoz*qaz;
+      var qlx=qow*qax+qox*qaw+qoy*qaz-qoz*qay;
+      var qly=qow*qay-qox*qaz+qoy*qaw+qoz*qax;
+      var qlz=qow*qaz+qox*qay-qoy*qax+qoz*qaw;
+      bq[i*4]  =pw*qlw-px*qlx-py*qly-pz*qlz;
+      bq[i*4+1]=pw*qlx+px*qlw+py*qlz-pz*qly;
+      bq[i*4+2]=pw*qly-px*qlz+py*qlw+pz*qlx;
+      bq[i*4+3]=pw*qlz+px*qly-py*qlx+pz*qlw;
+    }
+    var base=f*nB;
+    for(var i=0;i<nB;i++){
+      pF[(base+i)*3]  =bp[i*3];
+      pF[(base+i)*3+1]=bp[i*3+1];
+      pF[(base+i)*3+2]=bp[i*3+2];
+      qF[(base+i)*4]  =bq[i*4];
+      qF[(base+i)*4+1]=bq[i*4+1];
+      qF[(base+i)*4+2]=bq[i*4+2];
+      qF[(base+i)*4+3]=bq[i*4+3];
+    }
+  }
+  return{fps:raw.fps,nF:nF,nB:nB,pF:pF,qF:qF};
 }
 
 // ── STL Parser ──
@@ -487,6 +922,7 @@ var LG = [];
 var bodyNames = [];
 var nBodies = 0;
 var meshLoaded = false;
+var fkInfo = null;
 
 // Trail
 var trl=new THREE.Line(
@@ -511,11 +947,15 @@ function clearRobot() {
   bodyNames = [];
   nBodies = 0;
   meshLoaded = false;
+  fkInfo = null;
+  for (var i = 0; i < mots.length; i++) {
+    if (mots[i].raw) mots[i].d = null;
+  }
 }
 
-function loadRobot(urdfText, stlMap) {
+function loadRobot(descText, stlMap) {
   clearRobot();
-  var urdf = parseURDF(urdfText);
+  var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
   var bodies = computeBodyOrder(urdf);
   nBodies = bodies.length;
 
@@ -583,13 +1023,27 @@ function loadRobot(urdfText, stlMap) {
   }
 
   meshLoaded = true;
+  fkInfo = buildFKChain(urdf, bodies);
   var statusText = urdf.robotName + ' loaded (' + loaded + ' meshes, ' + nBodies + ' bodies)';
   if (missing) statusText += ' — ' + missing + ' missing';
   $('ms').textContent = statusText;
   $('ms').className = missing ? 'ms warn' : 'ms ok';
   console.log(statusText);
   $('hi').textContent = urdf.robotName + ' | ' + nBodies + ' bodies';
+  ensureFK();
   return nBodies;
+}
+
+function ensureFK(){
+  if(!fkInfo)return;
+  var any=false;
+  for(var i=0;i<mots.length;i++){
+    if(mots[i].raw&&!mots[i].d){
+      try{mots[i].d=precomputeFK(fkInfo,mots[i].raw);any=true;}
+      catch(e){console.error('FK failed for '+mots[i].name,e);}
+    }
+  }
+  if(any){rSb();uUI();}
 }
 
 function updatePose(mot, fr) {
@@ -672,23 +1126,46 @@ cv.addEventListener('touchend',function(e){if(e.touches.length<2){drg=0;tch0=nul
 window.addEventListener('resize',function(){W=vp.clientWidth;H=vp.clientHeight;cam.aspect=W/H;cam.updateProjectionMatrix();rn.setSize(W,H);});
 
 // ── State ──
-var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false;
+var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all';
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
+function motKind(m){return m && m.raw ? 'pkl' : 'npz';}
 function rSb(){
   var el=$('sl');el.innerHTML='';
-  var actEl=null,labeled=0;
+  var counts={all:mots.length,pkl:0,npz:0},labeled={all:0,pkl:0,npz:0};
   for(var i=0;i<mots.length;i++){
-    var m=mots[i],d=document.createElement('div');
-    if(m.label)labeled++;
+    var k=motKind(mots[i]);counts[k]++;
+    if(mots[i].label){labeled.all++;labeled[k]++;}
+  }
+  var tabsEl=$('st');tabsEl.innerHTML='';
+  var tabs=[['all','All'],['npz','NPZ'],['pkl','PKL']];
+  tabs.forEach(function(t){
+    var key=t[0],lbl=t[1];
+    var b=document.createElement('button');
+    b.className='sb-tab'+(sbFilter===key?' act':'');
+    b.innerHTML=lbl+'<span class="sb-tc">'+counts[key]+'</span>';
+    b.setAttribute('data-f',key);
+    b.onclick=function(){sbFilter=this.getAttribute('data-f');rSb();};
+    tabsEl.appendChild(b);
+  });
+  var actEl=null;
+  for(var i=0;i<mots.length;i++){
+    var m=mots[i],k=motKind(m);
+    if(sbFilter!=='all'&&k!==sbFilter)continue;
+    var d=document.createElement('div');
     var badge=m.label==='keep'?'<span class="lbl keep">keep</span>':m.label==='abort'?'<span class="lbl abort">drop</span>':'';
+    var kindTag='<span class="lbl '+(k==='pkl'?'kpkl':'knpz')+'">'+k+'</span>';
     d.className='sb-i'+(i===aIdx?' act':'');
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+badge+'</div><div class="sb-m">'+m.d.nF+'f\u00b7'+m.d.fps+'fps\u00b7'+(m.d.nF/m.d.fps).toFixed(1)+'s</div>';
+    var info=m.d||m.raw||{nF:0,fps:0};
+    var meta=info.nF?(info.nF+'f\u00b7'+info.fps+'fps\u00b7'+(info.nF/info.fps).toFixed(1)+'s'):'\u2026';
+    if(!m.d&&m.raw)meta+=' \u00b7 awaiting robot';
+    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
     d.setAttribute('data-i',i);
     d.onclick=function(){aIdx=parseInt(this.getAttribute('data-i'));cFr=0;tPts=[];rSb();uUI();};
     el.appendChild(d);
     if(i===aIdx)actEl=d;
   }
-  $('sbl').textContent=mots.length?'Motions \u00b7 '+labeled+'/'+mots.length:'Motions';
+  var headLbl=sbFilter==='all'?'Motions':sbFilter.toUpperCase();
+  $('sbl').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -705,7 +1182,7 @@ function uUI(){
   $('bk').classList.toggle('keepon',mots[aIdx].label==='keep');
   $('bd').classList.toggle('dropon',mots[aIdx].label==='abort');
   if (meshLoaded && m.nB !== nBodies) {
-    $('ms').textContent = '\u26a0 URDF/NPZ mismatch: NPZ=' + m.nB + ' bodies, URDF=' + nBodies + ' bodies. Use a matching URDF.';
+    $('ms').textContent = '\u26a0 Body count mismatch: motion=' + m.nB + ', robot=' + nBodies + '. Use a matching URDF/MJCF.';
     $('ms').className = 'ms warn';
   }
 }
@@ -729,9 +1206,9 @@ function loadNPZ(files){
     to.textContent='Loading '+(ix+1)+'/'+nf.length+': '+f.name;
     ix++;
     var rd=new FileReader();
-    rd.onload=function(ev){
+    rd.onload=async function(ev){
       try{
-        var a=parseNPZ(ev.target.result);
+        var a=await parseNPZ(ev.target.result);
         if(a.body_pos_w){
           var d=extractMotion(a);
           mots.push({name:f.name.replace('.npz',''),d:d,label:null});
@@ -743,6 +1220,50 @@ function loadNPZ(files){
     rd.readAsArrayBuffer(f);
   }
   nx();
+}
+
+// ── PKL loading (root + DoF → FK to world body poses) ──
+function loadPKL(files){
+  var pf=[];
+  for(var i=0;i<files.length;i++)
+    if(files[i].name.toLowerCase().endsWith('.pkl'))pf.push(files[i]);
+  if(!pf.length)return;
+  pf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var to=$('to');to.style.display='block';
+  var fn=mots.length,ix=0;
+  function nx(){
+    if(ix>=pf.length){
+      to.style.display='none';
+      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();ensureFK();uUI();}
+      return;
+    }
+    var f=pf[ix];
+    to.textContent='Loading '+(ix+1)+'/'+pf.length+': '+f.name;
+    ix++;
+    var rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        var pk=parsePickle(ev.target.result);
+        var raw=extractPKLMotion(pk);
+        mots.push({name:f.name.replace(/\.pkl$/i,''),d:null,raw:raw,label:null});
+      }catch(e){console.error(f.name,e);}
+      setTimeout(nx,5);
+    };
+    rd.onerror=function(){setTimeout(nx,5);};
+    rd.readAsArrayBuffer(f);
+  }
+  nx();
+}
+
+function loadMotionFiles(files){
+  var npz=[],pkl=[];
+  for(var i=0;i<files.length;i++){
+    var n=files[i].name.toLowerCase();
+    if(n.endsWith('.npz'))npz.push(files[i]);
+    else if(n.endsWith('.pkl'))pkl.push(files[i]);
+  }
+  if(npz.length)loadNPZ(npz);
+  if(pkl.length)loadPKL(pkl);
 }
 
 // ── Drag & Drop ──
@@ -762,17 +1283,18 @@ document.body.addEventListener('drop',function(e){
 });
 
 function procEntries(entries) {
-  var stl={}, npz=[], urdfText=null, pend=0, finished=false;
+  var stl={}, npz=[], pkl=[], descText=null, pend=0, finished=false;
   var to=$('to');to.style.display='block';to.textContent='Scanning...';
 
   function done(){
     if(pend>0||finished)return;
     finished=true;
     to.style.display='none';
-    if(urdfText && Object.keys(stl).length) {
-      try { loadRobot(urdfText, stl); } catch(e) { console.error('URDF load error:', e); $('ms').textContent='URDF error: '+e.message;$('ms').className='ms warn'; }
+    if(descText && Object.keys(stl).length) {
+      try { loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
     }
     if(npz.length) loadNPZ(npz);
+    if(pkl.length) loadPKL(pkl);
   }
 
   function readEntry(en) {
@@ -785,13 +1307,22 @@ function procEntries(entries) {
           r.onload = function(ev) { stl[lo] = ev.target.result; pend--; done(); };
           r.onerror = function() { pend--; done(); };
           r.readAsArrayBuffer(f);
-        } else if (lo.endsWith('.urdf')) {
+        } else if (lo.endsWith('.urdf') || lo.endsWith('.xml')) {
           var r2 = new FileReader();
-          r2.onload = function(ev) { urdfText = ev.target.result; pend--; done(); };
+          r2.onload = function(ev) {
+            var txt = ev.target.result;
+            // If multiple desc files dropped, prefer the one whose root element
+            // is actually <mujoco>; otherwise keep the first one read.
+            if (!descText) descText = txt;
+            else if (isMjcfText(txt)) descText = txt;
+            pend--; done();
+          };
           r2.onerror = function() { pend--; done(); };
           r2.readAsText(f);
         } else if (lo.endsWith('.npz')) {
           npz.push(f); pend--; done();
+        } else if (lo.endsWith('.pkl')) {
+          pkl.push(f); pend--; done();
         } else {
           pend--; done();
         }
@@ -813,39 +1344,41 @@ function procEntries(entries) {
 }
 
 function procFileList(files) {
-  var stl={}, npzF=[], stlF=[], urdfFile=null;
+  var stl={}, npzF=[], pklF=[], stlF=[], descFile=null;
   for(var i=0;i<files.length;i++){
     var lo=files[i].name.toLowerCase();
     if(lo.endsWith('.stl')) stlF.push(files[i]);
-    else if(lo.endsWith('.urdf')) urdfFile=files[i];
+    else if(lo.endsWith('.urdf') || lo.endsWith('.xml')) descFile=files[i];
     else if(lo.endsWith('.npz')) npzF.push(files[i]);
+    else if(lo.endsWith('.pkl')) pklF.push(files[i]);
   }
-  if (urdfFile && stlF.length) {
-    var ld=0, urdfText=null;
+  if (descFile && stlF.length) {
+    var ld=0, descText=null;
     var r0=new FileReader();
     r0.onload=function(ev){
-      urdfText=ev.target.result;
+      descText=ev.target.result;
       if(ld===stlF.length) finalize();
     };
-    r0.readAsText(urdfFile);
+    r0.readAsText(descFile);
     for(var s=0;s<stlF.length;s++){
       (function(f){
         var r=new FileReader();
-        r.onload=function(ev){stl[f.name.toLowerCase()]=ev.target.result;ld++;if(ld===stlF.length && urdfText) finalize();};
+        r.onload=function(ev){stl[f.name.toLowerCase()]=ev.target.result;ld++;if(ld===stlF.length && descText) finalize();};
         r.readAsArrayBuffer(f);
       })(stlF[s]);
     }
     function finalize(){
-      try { loadRobot(urdfText, stl); } catch(e) { console.error(e); }
+      try { loadRobot(descText, stl); } catch(e) { console.error(e); }
       if(npzF.length) loadNPZ(npzF);
+      if(pklF.length) loadPKL(pklF);
     }
-  } else if(npzF.length) {
-    loadNPZ(npzF);
+  } else if(npzF.length||pklF.length) {
+    loadMotionFiles(files);
   }
 }
 
-$('fi').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
-$('fd').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
+$('fi').addEventListener('change',function(e){loadMotionFiles(e.target.files);e.target.value='';});
+$('fd').addEventListener('change',function(e){loadMotionFiles(e.target.files);e.target.value='';});
 
 // ── Annotation ──
 function setLabel(label){
