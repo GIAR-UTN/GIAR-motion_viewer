@@ -312,6 +312,17 @@ function parseURDF(xmlStr) {
   return { robotName:robotName, links:links, joints:joints, root:root };
 }
 
+// True only when the root element of the XML is <mujoco>. URDF often embeds
+// a <mujoco><compiler.../></mujoco> hint block, so a plain substring check
+// would mis-route Solidworks-exported URDFs.
+function isMjcfText(text) {
+  try {
+    var doc = new DOMParser().parseFromString(text, 'text/xml');
+    var de = doc.documentElement;
+    return !!(de && de.tagName && de.tagName.toLowerCase() === 'mujoco');
+  } catch(e) { return false; }
+}
+
 // ── MJCF (MuJoCo XML) Parser — same output shape as parseURDF ──
 function parseMJCF(xmlStr) {
   var doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
@@ -944,8 +955,7 @@ function clearRobot() {
 
 function loadRobot(descText, stlMap) {
   clearRobot();
-  var head = descText.slice(0, 400);
-  var urdf = /<mujoco\b/i.test(head) ? parseMJCF(descText) : parseURDF(descText);
+  var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
   var bodies = computeBodyOrder(urdf);
   nBodies = bodies.length;
 
@@ -1301,10 +1311,10 @@ function procEntries(entries) {
           var r2 = new FileReader();
           r2.onload = function(ev) {
             var txt = ev.target.result;
-            // If multiple desc files dropped, prefer MJCF (.xml) over fallback URDF only when
-            // it actually contains <mujoco>; otherwise prefer the first one read.
+            // If multiple desc files dropped, prefer the one whose root element
+            // is actually <mujoco>; otherwise keep the first one read.
             if (!descText) descText = txt;
-            else if (/<mujoco\b/i.test(txt.slice(0,400))) descText = txt;
+            else if (isMjcfText(txt)) descText = txt;
             pend--; done();
           };
           r2.onerror = function() { pend--; done(); };
