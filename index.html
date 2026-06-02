@@ -610,6 +610,25 @@ function extractPKLMotion(d){
   return{fps:fps,nF:nF,nD:nD,rootPos:rootPos,rootRot:rootRot,dofPos:dofPos,isPKL:true};
 }
 
+// ── PKL joint-order presets ──
+// PKL/MuJoCo save formats use MJCF body-tree DFS joint order. For most robots
+// the URDF document order matches the MJCF order, so no remap is needed.
+// Some MJCFs include joints the URDF doesn't (e.g. omni's shoe/head joints
+// padded with zeros) — for those, look up each URDF joint's PKL slot by name.
+// Keyed by DoF count; lookup falls back to URDF iteration order on a miss.
+var PKL_JOINT_PRESETS = {
+  // GMR omni.xml (33 entries) — used by *_omni.pkl, 4 slots are zero-padded
+  // for joints that omni7dof.urdf doesn't carry (shoe_pitch_l/r, head_yaw/pitch).
+  33: [
+    "hip_pitch_l_joint","hip_roll_l_joint","hip_yaw_l_joint","knee_pitch_l_joint","ankle_pitch_l_joint","ankle_roll_l_joint","shoe_pitch_l_joint",
+    "hip_pitch_r_joint","hip_roll_r_joint","hip_yaw_r_joint","knee_pitch_r_joint","ankle_pitch_r_joint","ankle_roll_r_joint","shoe_pitch_r_joint",
+    "waist_yaw_joint","waist_roll_joint","waist_pitch_joint",
+    "head_yaw_joint","head_pitch_joint",
+    "shoulder_pitch_l_joint","shoulder_roll_l_joint","shoulder_yaw_l_joint","elbow_pitch_l_joint","elbow_yaw_l_joint","wrist_pitch_l_joint","wrist_roll_l_joint",
+    "shoulder_pitch_r_joint","shoulder_roll_r_joint","shoulder_yaw_r_joint","elbow_pitch_r_joint","elbow_yaw_r_joint","wrist_pitch_r_joint","wrist_roll_r_joint"
+  ]
+};
+
 // ── Forward Kinematics (for DoF-based motions) ──
 function rpyToWxyz(r,p,y){
   var cr=Math.cos(r/2),sr=Math.sin(r/2);
@@ -634,13 +653,24 @@ function buildFKChain(urdf,bodies){
     var ax=j.axis[0],ay=j.axis[1],az=j.axis[2];
     var alen=Math.sqrt(ax*ax+ay*ay+az*az);
     if(alen>1e-9){ax/=alen;ay/=alen;az/=alen;}else{ax=0;ay=0;az=1;}
-    chain[ci]={parent:pi,x:j.xyz[0],y:j.xyz[1],z:j.xyz[2],qow:qo[0],qox:qo[1],qoy:qo[2],qoz:qo[3],ax:ax,ay:ay,az:az,dofIdx:jointDof[j.name],type:j.type};
+    chain[ci]={parent:pi,x:j.xyz[0],y:j.xyz[1],z:j.xyz[2],qow:qo[0],qox:qo[1],qoy:qo[2],qoz:qo[3],ax:ax,ay:ay,az:az,dofIdx:jointDof[j.name],name:j.name,type:j.type};
   }
   return{chain:chain,nDof:dofIdx};
 }
 function precomputeFK(fkInfo,raw){
   var chain=fkInfo.chain,nB=chain.length,nF=raw.nF,nD=raw.nD;
   var rp=raw.rootPos,rr=raw.rootRot,dp=raw.dofPos;
+  var preset=PKL_JOINT_PRESETS[nD],dofMap=null,mappedCount=0;
+  if(preset){
+    dofMap=new Int32Array(nB);
+    for(var i=0;i<nB;i++){
+      var ce=chain[i];if(!ce){dofMap[i]=-1;continue;}
+      var k=preset.indexOf(ce.name);
+      if(k>=0){dofMap[i]=k;mappedCount++;}
+      else dofMap[i]=ce.dofIdx;
+    }
+    console.log('PKL joint preset '+nD+' applied: '+mappedCount+'/'+(nB-1)+' URDF joints matched by name');
+  }
   var pF=new Float32Array(nF*nB*3),qF=new Float32Array(nF*nB*4);
   var bp=new Float32Array(nB*3),bq=new Float32Array(nB*4);
   for(var f=0;f<nF;f++){
@@ -650,7 +680,8 @@ function precomputeFK(fkInfo,raw){
       var c=chain[i];
       if(!c){bp[i*3]=0;bp[i*3+1]=0;bp[i*3+2]=0;bq[i*4]=1;bq[i*4+1]=0;bq[i*4+2]=0;bq[i*4+3]=0;continue;}
       var pi=c.parent;
-      var angle=(c.dofIdx<nD)?dp[f*nD+c.dofIdx]:0;
+      var dIdx=dofMap?dofMap[i]:c.dofIdx;
+      var angle=(dIdx>=0&&dIdx<nD)?dp[f*nD+dIdx]:0;
       var pw=bq[pi*4],px=bq[pi*4+1],py=bq[pi*4+2],pz=bq[pi*4+3];
       var vx=c.x,vy=c.y,vz=c.z;
       var tx=2*(py*vz-pz*vy),ty=2*(pz*vx-px*vz),tz=2*(px*vy-py*vx);
