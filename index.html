@@ -374,21 +374,31 @@ function parseMJCF(xmlStr) {
   var unsupportedJointWarned = false;
 
   function collectGeoms(bodyEl) {
-    var meshes = [], rgba = null, seen = {};
+    // Returns per-geom {file, xyz, rpy, rgba} entries. Each MJCF <geom> may
+    // carry its own pos/quat that positions the mesh relative to the body
+    // frame, e.g. G1's head mesh is a torso geom with pos="0.004 0 -0.044".
+    // Deduplicated on (mesh|pos|rpy) so visual+collision pairs collapse to one.
+    var baked = [], rgba = null, seen = {};
     var kids = bodyEl.children;
     for (var i = 0; i < kids.length; i++) {
       if (kids[i].tagName !== 'geom') continue;
       var mref = kids[i].getAttribute('mesh');
-      if (mref && meshTable[mref] && !seen[mref]) {
-        meshes.push(meshTable[mref]);
-        seen[mref] = true;
-      }
-      if (!rgba) {
-        var c = kids[i].getAttribute('rgba');
-        if (c) rgba = c;
-      }
+      if (!mref || !meshTable[mref]) continue;
+      var gp = parseVec(kids[i].getAttribute('pos'), 3, [0,0,0]);
+      var qa = kids[i].getAttribute('quat');
+      var ea = kids[i].getAttribute('euler');
+      var gr;
+      if (qa) gr = quatWxyzToRpy(parseVec(qa, 4, [1,0,0,0]));
+      else if (ea) { var v = parseVec(ea, 3, [0,0,0]); gr = [v[0]*angleScale, v[1]*angleScale, v[2]*angleScale]; }
+      else gr = [0,0,0];
+      var gRgba = kids[i].getAttribute('rgba');
+      var key = mref + '|' + gp.join(',') + '|' + gr.join(',');
+      if (seen[key]) continue;
+      seen[key] = true;
+      baked.push({ file: meshTable[mref], xyz: gp, rpy: gr, rgba: gRgba });
+      if (!rgba && gRgba) rgba = gRgba;
     }
-    return { meshes: meshes, rgba: rgba };
+    return { baked: baked, rgba: rgba };
   }
 
   function processBody(bodyEl, parentName) {
@@ -397,7 +407,9 @@ function parseMJCF(xmlStr) {
     var pos = parseVec(bodyEl.getAttribute('pos'), 3, [0,0,0]);
     var rpy = bodyOrientation(bodyEl);
     var g = collectGeoms(bodyEl);
-    links[name] = { name: name, meshes: g.meshes, rgba: g.rgba, children: [] };
+    // MJCF carries per-geom offsets, so the link has no plain-mesh list (rendered
+    // at body origin); everything goes via bakedMeshes which the BFS picks up.
+    links[name] = { name: name, meshes: [], bakedMeshes: g.baked, rgba: g.rgba, children: [] };
 
     if (!parentName) {
       // Top-level body under <worldbody> — this is the robot's root link.
@@ -470,6 +482,13 @@ function computeBodyOrder(urdf) {
     link.meshes.forEach(function(m) {
       extras.push({ file: m, xyz: parentXyz, rpy: parentRpy, rgba: link.rgba });
     });
+    if (link.bakedMeshes) {
+      link.bakedMeshes.forEach(function(bm) {
+        var cx = [parentXyz[0]+bm.xyz[0], parentXyz[1]+bm.xyz[1], parentXyz[2]+bm.xyz[2]];
+        var cr = [parentRpy[0]+bm.rpy[0], parentRpy[1]+bm.rpy[1], parentRpy[2]+bm.rpy[2]];
+        extras.push({ file: bm.file, xyz: cx, rpy: cr, rgba: bm.rgba || link.rgba });
+      });
+    }
     link.children.forEach(function(j) {
       if (j.type === 'fixed') {
         var cx = [parentXyz[0]+j.xyz[0], parentXyz[1]+j.xyz[1], parentXyz[2]+j.xyz[2]];
@@ -490,6 +509,15 @@ function computeBodyOrder(urdf) {
     link.meshes.forEach(function(m) {
       body.meshes.push(m);
     });
+    // MJCF body's own per-geom offsets — render via the baked path so each
+    // <geom>'s pos/quat applies (URDF leaves bakedMeshes undefined).
+    if (link.bakedMeshes) {
+      body.fixedMeshes = body.fixedMeshes.concat(
+        link.bakedMeshes.map(function(bm) {
+          return { file: bm.file, xyz: bm.xyz, rpy: bm.rpy, rgba: bm.rgba || link.rgba };
+        })
+      );
+    }
 
     link.children.forEach(function(j) {
       if (j.type === 'fixed') {
