@@ -429,22 +429,43 @@ async function parseNPZ(ab) {
   }
   return r;
 }
+function fOrderToC(shape,data){
+  var nd=shape.length;
+  if(nd<2)return data;
+  var n=1;for(var i=0;i<nd;i++)n*=shape[i];
+  if(data.length!==n)return data;
+  var out=new data.constructor(n);
+  var stC=new Array(nd),stF=new Array(nd);
+  stC[nd-1]=1;for(var i=nd-2;i>=0;i--)stC[i]=stC[i+1]*shape[i+1];
+  stF[0]=1;for(var i=1;i<nd;i++)stF[i]=stF[i-1]*shape[i-1];
+  var idx=new Array(nd);for(var i=0;i<nd;i++)idx[i]=0;
+  for(var k=0;k<n;k++){
+    var fo=0,co=0;
+    for(var d=0;d<nd;d++){fo+=idx[d]*stF[d];co+=idx[d]*stC[d];}
+    out[co]=data[fo];
+    for(var d=nd-1;d>=0;d--){idx[d]++;if(idx[d]<shape[d])break;idx[d]=0;}
+  }
+  return out;
+}
 function parseNPY(b) {
   if(b[0]!==147||b[1]!==78)throw 0;
   var mj=b[6],hl,hs;
   if(mj>=2){hl=(b[8]|(b[9]<<8)|(b[10]<<16)|(b[11]<<24))>>>0;hs=12;}
   else{hl=b[8]|(b[9]<<8);hs=10;}
   var h='';for(var i=hs;i<hs+hl;i++)h+=String.fromCharCode(b[i]);
-  var dm=h.match(/'descr'\s*:\s*'([^']+)'/),sm=h.match(/'shape'\s*:\s*\(([^)]*)\)/);
+  var dm=h.match(/'descr'\s*:\s*'([^']+)'/),sm=h.match(/'shape'\s*:\s*\(([^)]*)\)/),fm=h.match(/'fortran_order'\s*:\s*(True|False)/);
   if(!dm||!sm)throw 0;
-  var d=dm[1],sh=[];
+  var d=dm[1],sh=[],fo=fm&&fm[1]==='True';
   sm[1].split(',').forEach(function(s){s=s.trim();if(s)sh.push(parseInt(s));});
   var doff=hs+hl;
   var ab=b.buffer.slice(b.byteOffset+doff,b.byteOffset+b.length);
-  if(d.indexOf('f4')>=0)return{shape:sh,data:new Float32Array(ab)};
-  if(d.indexOf('i4')>=0)return{shape:sh,data:new Int32Array(ab)};
-  if(d.indexOf('f8')>=0)return{shape:sh,data:new Float64Array(ab)};
-  return{shape:sh,data:new Uint8Array(ab)};
+  var arr;
+  if(d.indexOf('f4')>=0)arr=new Float32Array(ab);
+  else if(d.indexOf('i4')>=0)arr=new Int32Array(ab);
+  else if(d.indexOf('f8')>=0)arr=new Float64Array(ab);
+  else arr=new Uint8Array(ab);
+  if(fo)arr=fOrderToC(sh,arr);
+  return{shape:sh,data:arr};
 }
 function extractMotion(a) {
   var fps=a.fps?a.fps.data[0]:50;
@@ -483,6 +504,7 @@ function parsePickle(ab){
         obj.shape=state[1];
         var dt=state[2];
         obj.dtype=dt&&dt.__dtype__?dt.__dtype__:'O';
+        var fortran=!!state[3];
         var raw=state[4];
         if(raw instanceof Uint8Array){
           var ab2=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
@@ -492,6 +514,9 @@ function parsePickle(ab){
           else if(dn==='i4'||dn==='<i4')obj.data=new Int32Array(ab2);
           else if(dn==='i8'||dn==='<i8')obj.data=(typeof BigInt64Array!=='undefined')?new BigInt64Array(ab2):raw;
           else obj.data=raw;
+          if(fortran&&obj.shape&&obj.shape.length>=2&&obj.data&&obj.data.length===obj.shape.reduce(function(a,b){return a*b;},1)){
+            obj.data=fOrderToC(obj.shape,obj.data);
+          }
         }
       }
     }
