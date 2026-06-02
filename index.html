@@ -185,22 +185,22 @@
 </div>
 
 <div id="app">
-  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF + meshes) + .npz</span></div>
+  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF + meshes) + .npz / .pkl</span></div>
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF + STL</div>
       <div class="sb-l" id="sbl">Motions</div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
-        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz">+ Add .npz</label>
-        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz" webkitdirectory>+ Add folder</label>
+        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl">+ Add motion</label>
+        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz,.pkl" webkitdirectory>+ Add folder</label>
         <button class="sb-b" id="bx">&#11015; Export CSV</button>
       </div>
     </div>
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
-      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF + STL meshes</b><br>Step 2: Drag <b>.npz</b> motion files</div></div>
+      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
   </div>
@@ -284,7 +284,13 @@ function parseURDF(xmlStr) {
       if (xs) xyz = xs.trim().split(/\s+/).map(Number);
       if (rs) rpy = rs.trim().split(/\s+/).map(Number);
     }
-    var j = { name:name, type:type, parent:pName, child:cName, xyz:xyz, rpy:rpy };
+    var axis = [0,0,1];
+    var axisEl = el.querySelector('axis');
+    if (axisEl) {
+      var as = axisEl.getAttribute('xyz');
+      if (as) axis = as.trim().split(/\s+/).map(Number);
+    }
+    var j = { name:name, type:type, parent:pName, child:cName, xyz:xyz, rpy:rpy, axis:axis };
     joints.push(j);
     childSet[cName] = true;
     if (links[pName]) links[pName].children.push(j);
@@ -446,6 +452,212 @@ function extractMotion(a) {
   return{fps:fps,nF:bp.shape[0],nB:bp.shape[1],pF:bp.data,qF:bq?bq.data:null};
 }
 
+// ── Pickle Parser (subset for dict-of-ndarrays) ──
+var PICKLE_MARK={__m__:1};
+function parsePickle(ab){
+  var b=new Uint8Array(ab),dv=new DataView(b.buffer,b.byteOffset,b.byteLength);
+  var stack=[],memo=[],pos=0,td=new TextDecoder('utf-8');
+  function _str(n){var s=td.decode(b.subarray(pos,pos+n));pos+=n;return s;}
+  function _bytes(n){var s=b.subarray(pos,pos+n);pos+=n;return s;}
+  function _reduce(cls,args){
+    var cn=cls&&cls.__class__;
+    if(cn==='numpy.core.multiarray._reconstruct'||cn==='numpy._core.multiarray._reconstruct')return{__ndarray__:1};
+    if(cn==='numpy.dtype')return{__dtype__:(args&&typeof args[0]==='string')?args[0]:'O'};
+    if(cn==='numpy.core.multiarray.scalar'||cn==='numpy._core.multiarray.scalar'){
+      var dt=args[0],bs=args[1];
+      var dn=dt&&dt.__dtype__||'';
+      if(bs instanceof Uint8Array){
+        var ab2=bs.buffer.slice(bs.byteOffset,bs.byteOffset+bs.byteLength);
+        if(dn==='f4'||dn==='<f4')return new Float32Array(ab2)[0];
+        if(dn==='f8'||dn==='<f8')return new Float64Array(ab2)[0];
+        if(dn==='i4'||dn==='<i4')return new Int32Array(ab2)[0];
+        if(dn==='i8'||dn==='<i8')return Number(new BigInt64Array(ab2)[0]);
+      }
+      return 0;
+    }
+    return{__cls__:cn,__args__:args};
+  }
+  function _build(obj,state){
+    if(obj&&obj.__ndarray__){
+      if(Array.isArray(state)&&state.length>=5){
+        obj.shape=state[1];
+        var dt=state[2];
+        obj.dtype=dt&&dt.__dtype__?dt.__dtype__:'O';
+        var raw=state[4];
+        if(raw instanceof Uint8Array){
+          var ab2=raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength);
+          var dn=obj.dtype;
+          if(dn==='f4'||dn==='<f4')obj.data=new Float32Array(ab2);
+          else if(dn==='f8'||dn==='<f8')obj.data=new Float64Array(ab2);
+          else if(dn==='i4'||dn==='<i4')obj.data=new Int32Array(ab2);
+          else if(dn==='i8'||dn==='<i8')obj.data=(typeof BigInt64Array!=='undefined')?new BigInt64Array(ab2):raw;
+          else obj.data=raw;
+        }
+      }
+    }
+  }
+  while(pos<b.length){
+    var op=b[pos++];
+    switch(op){
+      case 0x80:pos++;break;
+      case 0x95:pos+=8;break;
+      case 0x94:memo.push(stack[stack.length-1]);break;
+      case 0x71:{var i=b[pos++];memo[i]=stack[stack.length-1];break;}
+      case 0x72:{var i=dv.getUint32(pos,true);pos+=4;memo[i]=stack[stack.length-1];break;}
+      case 0x68:stack.push(memo[b[pos++]]);break;
+      case 0x6a:{var i=dv.getUint32(pos,true);pos+=4;stack.push(memo[i]);break;}
+      case 0x7d:stack.push({});break;
+      case 0x29:stack.push([]);break;
+      case 0x4e:stack.push(null);break;
+      case 0x88:stack.push(true);break;
+      case 0x89:stack.push(false);break;
+      case 0x4a:{var v=dv.getInt32(pos,true);pos+=4;stack.push(v);break;}
+      case 0x4b:stack.push(b[pos++]);break;
+      case 0x4d:{var v=dv.getUint16(pos,true);pos+=2;stack.push(v);break;}
+      case 0x47:{var v=dv.getFloat64(pos,false);pos+=8;stack.push(v);break;}
+      case 0x8c:{var n=b[pos++];stack.push(_str(n));break;}
+      case 0x8d:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_str(n));break;}
+      case 0x42:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_bytes(n));break;}
+      case 0x43:{var n=b[pos++];stack.push(_bytes(n));break;}
+      case 0x28:stack.push(PICKLE_MARK);break;
+      case 0x74:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var t=stack.slice(i+1);stack.length=i;stack.push(t);break;}
+      case 0x85:{var v=stack.pop();stack.push([v]);break;}
+      case 0x86:{var b1=stack.pop(),a1=stack.pop();stack.push([a1,b1]);break;}
+      case 0x87:{var c1=stack.pop(),b1=stack.pop(),a1=stack.pop();stack.push([a1,b1,c1]);break;}
+      case 0x75:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var d=stack[i-1];for(var k=i+1;k<stack.length;k+=2)d[stack[k]]=stack[k+1];stack.length=i;break;}
+      case 0x73:{var v=stack.pop(),k=stack.pop();stack[stack.length-1][k]=v;break;}
+      case 0x65:{var i=stack.length-1;while(stack[i]!==PICKLE_MARK)i--;var lst=stack[i-1];for(var k=i+1;k<stack.length;k++)lst.push(stack[k]);stack.length=i;break;}
+      case 0x5d:stack.push([]);break;
+      case 0x61:{var v=stack.pop();stack[stack.length-1].push(v);break;}
+      case 0x93:{var name=stack.pop(),mod=stack.pop();stack.push({__class__:mod+'.'+name});break;}
+      case 0x63:{var mod='',name='',c;while((c=b[pos++])!==0x0a)mod+=String.fromCharCode(c);while((c=b[pos++])!==0x0a)name+=String.fromCharCode(c);stack.push({__class__:mod+'.'+name});break;}
+      case 0x52:{var args=stack.pop(),cls=stack.pop();stack.push(_reduce(cls,args));break;}
+      case 0x62:{var state=stack.pop();_build(stack[stack.length-1],state);break;}
+      case 0x81:{var args=stack.pop(),cls=stack.pop();stack.push(_reduce(cls,args));break;}
+      case 0x8a:{var n=b[pos++],v=0,sh=0;for(var k=0;k<n;k++){v+=b[pos++]*Math.pow(2,sh);sh+=8;}if(n>0&&(b[pos-1]&0x80))v-=Math.pow(2,n*8);stack.push(v);break;}
+      case 0x2e:return stack.pop();
+      default:throw new Error('unsupported pickle opcode 0x'+op.toString(16)+' at '+(pos-1));
+    }
+  }
+  return stack.pop();
+}
+
+function extractPKLMotion(d){
+  var fps=(typeof d.fps==='number')?d.fps:(d.fps&&d.fps.data?d.fps.data[0]:50);
+  var rootPos,rootRot,dofPos,nF,nD;
+  if(d&&d.__ndarray__){
+    var arr=d.data,sh=d.shape;
+    nF=sh[0];var stride=sh[1];nD=stride-7;
+    rootPos=new Float32Array(nF*3);
+    rootRot=new Float32Array(nF*4);
+    dofPos=new Float32Array(nF*nD);
+    for(var f=0;f<nF;f++){
+      var off=f*stride;
+      rootPos[f*3]=arr[off];rootPos[f*3+1]=arr[off+1];rootPos[f*3+2]=arr[off+2];
+      rootRot[f*4]=arr[off+3];rootRot[f*4+1]=arr[off+4];rootRot[f*4+2]=arr[off+5];rootRot[f*4+3]=arr[off+6];
+      for(var j=0;j<nD;j++)dofPos[f*nD+j]=arr[off+7+j];
+    }
+  } else {
+    var rp=d.root_pos,rr=d.root_rot,dp=d.dof_pos;
+    if(!rp||!rr||!dp)throw new Error('PKL missing root_pos/root_rot/dof_pos');
+    nF=rp.shape[0];nD=dp.shape[1];
+    var toF32=function(x){return x instanceof Float32Array?x:new Float32Array(x);};
+    rootPos=toF32(rp.data);
+    dofPos=toF32(dp.data);
+    var rrd=toF32(rr.data);
+    rootRot=new Float32Array(nF*4);
+    for(var f=0;f<nF;f++){
+      rootRot[f*4]  =rrd[f*4+3];
+      rootRot[f*4+1]=rrd[f*4+0];
+      rootRot[f*4+2]=rrd[f*4+1];
+      rootRot[f*4+3]=rrd[f*4+2];
+    }
+    var rbo=d.root_body_offset;
+    if(rbo){
+      var off3=rbo.data?rbo.data:rbo;
+      if(off3[0]||off3[1]||off3[2]){
+        for(var f=0;f<nF;f++){
+          rootPos[f*3]-=off3[0];rootPos[f*3+1]-=off3[1];rootPos[f*3+2]-=off3[2];
+        }
+      }
+    }
+  }
+  return{fps:fps,nF:nF,nD:nD,rootPos:rootPos,rootRot:rootRot,dofPos:dofPos,isPKL:true};
+}
+
+// ── Forward Kinematics (for DoF-based motions) ──
+function rpyToWxyz(r,p,y){
+  var cr=Math.cos(r/2),sr=Math.sin(r/2);
+  var cp=Math.cos(p/2),sp=Math.sin(p/2);
+  var cy=Math.cos(y/2),sy=Math.sin(y/2);
+  return[cr*cp*cy+sr*sp*sy,sr*cp*cy-cr*sp*sy,cr*sp*cy+sr*cp*sy,cr*cp*sy-sr*sp*cy];
+}
+function buildFKChain(urdf,bodies){
+  var jointDof={},dofIdx=0;
+  for(var i=0;i<urdf.joints.length;i++){
+    if(urdf.joints[i].type!=='fixed')jointDof[urdf.joints[i].name]=dofIdx++;
+  }
+  var bIdx={};
+  for(var i=0;i<bodies.length;i++)bIdx[bodies[i].name]=i;
+  var chain=new Array(bodies.length);for(var i=0;i<bodies.length;i++)chain[i]=null;
+  for(var i=0;i<urdf.joints.length;i++){
+    var j=urdf.joints[i];
+    if(j.type==='fixed')continue;
+    var ci=bIdx[j.child],pi=bIdx[j.parent];
+    if(ci===undefined||pi===undefined)continue;
+    var qo=rpyToWxyz(j.rpy[0],j.rpy[1],j.rpy[2]);
+    var ax=j.axis[0],ay=j.axis[1],az=j.axis[2];
+    var alen=Math.sqrt(ax*ax+ay*ay+az*az);
+    if(alen>1e-9){ax/=alen;ay/=alen;az/=alen;}else{ax=0;ay=0;az=1;}
+    chain[ci]={parent:pi,x:j.xyz[0],y:j.xyz[1],z:j.xyz[2],qow:qo[0],qox:qo[1],qoy:qo[2],qoz:qo[3],ax:ax,ay:ay,az:az,dofIdx:jointDof[j.name],type:j.type};
+  }
+  return{chain:chain,nDof:dofIdx};
+}
+function precomputeFK(fkInfo,raw){
+  var chain=fkInfo.chain,nB=chain.length,nF=raw.nF,nD=raw.nD;
+  var rp=raw.rootPos,rr=raw.rootRot,dp=raw.dofPos;
+  var pF=new Float32Array(nF*nB*3),qF=new Float32Array(nF*nB*4);
+  var bp=new Float32Array(nB*3),bq=new Float32Array(nB*4);
+  for(var f=0;f<nF;f++){
+    bp[0]=rp[f*3];bp[1]=rp[f*3+1];bp[2]=rp[f*3+2];
+    bq[0]=rr[f*4];bq[1]=rr[f*4+1];bq[2]=rr[f*4+2];bq[3]=rr[f*4+3];
+    for(var i=1;i<nB;i++){
+      var c=chain[i];
+      if(!c){bp[i*3]=0;bp[i*3+1]=0;bp[i*3+2]=0;bq[i*4]=1;bq[i*4+1]=0;bq[i*4+2]=0;bq[i*4+3]=0;continue;}
+      var pi=c.parent;
+      var angle=(c.dofIdx<nD)?dp[f*nD+c.dofIdx]:0;
+      var pw=bq[pi*4],px=bq[pi*4+1],py=bq[pi*4+2],pz=bq[pi*4+3];
+      var vx=c.x,vy=c.y,vz=c.z;
+      var tx=2*(py*vz-pz*vy),ty=2*(pz*vx-px*vz),tz=2*(px*vy-py*vx);
+      bp[i*3]  =bp[pi*3]  +vx+pw*tx+py*tz-pz*ty;
+      bp[i*3+1]=bp[pi*3+1]+vy+pw*ty+pz*tx-px*tz;
+      bp[i*3+2]=bp[pi*3+2]+vz+pw*tz+px*ty-py*tx;
+      var h=angle*0.5,sh=Math.sin(h),ch=Math.cos(h);
+      var qaw=ch,qax=c.ax*sh,qay=c.ay*sh,qaz=c.az*sh;
+      var qow=c.qow,qox=c.qox,qoy=c.qoy,qoz=c.qoz;
+      var qlw=qow*qaw-qox*qax-qoy*qay-qoz*qaz;
+      var qlx=qow*qax+qox*qaw+qoy*qaz-qoz*qay;
+      var qly=qow*qay-qox*qaz+qoy*qaw+qoz*qax;
+      var qlz=qow*qaz+qox*qay-qoy*qax+qoz*qaw;
+      bq[i*4]  =pw*qlw-px*qlx-py*qly-pz*qlz;
+      bq[i*4+1]=pw*qlx+px*qlw+py*qlz-pz*qly;
+      bq[i*4+2]=pw*qly-px*qlz+py*qlw+pz*qlx;
+      bq[i*4+3]=pw*qlz+px*qly-py*qlx+pz*qlw;
+    }
+    var base=f*nB;
+    for(var i=0;i<nB;i++){
+      pF[(base+i)*3]  =bp[i*3];
+      pF[(base+i)*3+1]=bp[i*3+1];
+      pF[(base+i)*3+2]=bp[i*3+2];
+      qF[(base+i)*4]  =bq[i*4];
+      qF[(base+i)*4+1]=bq[i*4+1];
+      qF[(base+i)*4+2]=bq[i*4+2];
+      qF[(base+i)*4+3]=bq[i*4+3];
+    }
+  }
+  return{fps:raw.fps,nF:nF,nB:nB,pF:pF,qF:qF};
+}
+
 // ── STL Parser ──
 function parseSTL(buf) {
   var dv=new DataView(buf),nT=dv.getUint32(80,true);
@@ -499,6 +711,7 @@ var LG = [];
 var bodyNames = [];
 var nBodies = 0;
 var meshLoaded = false;
+var fkInfo = null;
 
 // Trail
 var trl=new THREE.Line(
@@ -523,6 +736,10 @@ function clearRobot() {
   bodyNames = [];
   nBodies = 0;
   meshLoaded = false;
+  fkInfo = null;
+  for (var i = 0; i < mots.length; i++) {
+    if (mots[i].raw) mots[i].d = null;
+  }
 }
 
 function loadRobot(urdfText, stlMap) {
@@ -595,13 +812,27 @@ function loadRobot(urdfText, stlMap) {
   }
 
   meshLoaded = true;
+  fkInfo = buildFKChain(urdf, bodies);
   var statusText = urdf.robotName + ' loaded (' + loaded + ' meshes, ' + nBodies + ' bodies)';
   if (missing) statusText += ' — ' + missing + ' missing';
   $('ms').textContent = statusText;
   $('ms').className = missing ? 'ms warn' : 'ms ok';
   console.log(statusText);
   $('hi').textContent = urdf.robotName + ' | ' + nBodies + ' bodies';
+  ensureFK();
   return nBodies;
+}
+
+function ensureFK(){
+  if(!fkInfo)return;
+  var any=false;
+  for(var i=0;i<mots.length;i++){
+    if(mots[i].raw&&!mots[i].d){
+      try{mots[i].d=precomputeFK(fkInfo,mots[i].raw);any=true;}
+      catch(e){console.error('FK failed for '+mots[i].name,e);}
+    }
+  }
+  if(any){rSb();uUI();}
 }
 
 function updatePose(mot, fr) {
@@ -694,7 +925,10 @@ function rSb(){
     if(m.label)labeled++;
     var badge=m.label==='keep'?'<span class="lbl keep">keep</span>':m.label==='abort'?'<span class="lbl abort">drop</span>':'';
     d.className='sb-i'+(i===aIdx?' act':'');
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+badge+'</div><div class="sb-m">'+m.d.nF+'f\u00b7'+m.d.fps+'fps\u00b7'+(m.d.nF/m.d.fps).toFixed(1)+'s</div>';
+    var info=m.d||m.raw||{nF:0,fps:0};
+    var meta=info.nF?(info.nF+'f\u00b7'+info.fps+'fps\u00b7'+(info.nF/info.fps).toFixed(1)+'s'):'\u2026';
+    if(!m.d&&m.raw)meta+=' \u00b7 awaiting URDF';
+    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+badge+'</div><div class="sb-m">'+meta+'</div>';
     d.setAttribute('data-i',i);
     d.onclick=function(){aIdx=parseInt(this.getAttribute('data-i'));cFr=0;tPts=[];rSb();uUI();};
     el.appendChild(d);
@@ -757,6 +991,50 @@ function loadNPZ(files){
   nx();
 }
 
+// ── PKL loading (root + DoF → FK to world body poses) ──
+function loadPKL(files){
+  var pf=[];
+  for(var i=0;i<files.length;i++)
+    if(files[i].name.toLowerCase().endsWith('.pkl'))pf.push(files[i]);
+  if(!pf.length)return;
+  pf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var to=$('to');to.style.display='block';
+  var fn=mots.length,ix=0;
+  function nx(){
+    if(ix>=pf.length){
+      to.style.display='none';
+      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();ensureFK();uUI();}
+      return;
+    }
+    var f=pf[ix];
+    to.textContent='Loading '+(ix+1)+'/'+pf.length+': '+f.name;
+    ix++;
+    var rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        var pk=parsePickle(ev.target.result);
+        var raw=extractPKLMotion(pk);
+        mots.push({name:f.name.replace(/\.pkl$/i,''),d:null,raw:raw,label:null});
+      }catch(e){console.error(f.name,e);}
+      setTimeout(nx,5);
+    };
+    rd.onerror=function(){setTimeout(nx,5);};
+    rd.readAsArrayBuffer(f);
+  }
+  nx();
+}
+
+function loadMotionFiles(files){
+  var npz=[],pkl=[];
+  for(var i=0;i<files.length;i++){
+    var n=files[i].name.toLowerCase();
+    if(n.endsWith('.npz'))npz.push(files[i]);
+    else if(n.endsWith('.pkl'))pkl.push(files[i]);
+  }
+  if(npz.length)loadNPZ(npz);
+  if(pkl.length)loadPKL(pkl);
+}
+
 // ── Drag & Drop ──
 var dc=0;
 document.body.addEventListener('dragenter',function(e){e.preventDefault();dc++;$('dr').style.display='flex';});
@@ -774,7 +1052,7 @@ document.body.addEventListener('drop',function(e){
 });
 
 function procEntries(entries) {
-  var stl={}, npz=[], urdfText=null, pend=0, finished=false;
+  var stl={}, npz=[], pkl=[], urdfText=null, pend=0, finished=false;
   var to=$('to');to.style.display='block';to.textContent='Scanning...';
 
   function done(){
@@ -785,6 +1063,7 @@ function procEntries(entries) {
       try { loadRobot(urdfText, stl); } catch(e) { console.error('URDF load error:', e); $('ms').textContent='URDF error: '+e.message;$('ms').className='ms warn'; }
     }
     if(npz.length) loadNPZ(npz);
+    if(pkl.length) loadPKL(pkl);
   }
 
   function readEntry(en) {
@@ -804,6 +1083,8 @@ function procEntries(entries) {
           r2.readAsText(f);
         } else if (lo.endsWith('.npz')) {
           npz.push(f); pend--; done();
+        } else if (lo.endsWith('.pkl')) {
+          pkl.push(f); pend--; done();
         } else {
           pend--; done();
         }
@@ -825,12 +1106,13 @@ function procEntries(entries) {
 }
 
 function procFileList(files) {
-  var stl={}, npzF=[], stlF=[], urdfFile=null;
+  var stl={}, npzF=[], pklF=[], stlF=[], urdfFile=null;
   for(var i=0;i<files.length;i++){
     var lo=files[i].name.toLowerCase();
     if(lo.endsWith('.stl')) stlF.push(files[i]);
     else if(lo.endsWith('.urdf')) urdfFile=files[i];
     else if(lo.endsWith('.npz')) npzF.push(files[i]);
+    else if(lo.endsWith('.pkl')) pklF.push(files[i]);
   }
   if (urdfFile && stlF.length) {
     var ld=0, urdfText=null;
@@ -850,14 +1132,15 @@ function procFileList(files) {
     function finalize(){
       try { loadRobot(urdfText, stl); } catch(e) { console.error(e); }
       if(npzF.length) loadNPZ(npzF);
+      if(pklF.length) loadPKL(pklF);
     }
-  } else if(npzF.length) {
-    loadNPZ(npzF);
+  } else if(npzF.length||pklF.length) {
+    loadMotionFiles(files);
   }
 }
 
-$('fi').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
-$('fd').addEventListener('change',function(e){loadNPZ(e.target.files);e.target.value='';});
+$('fi').addEventListener('change',function(e){loadMotionFiles(e.target.files);e.target.value='';});
+$('fd').addEventListener('change',function(e){loadMotionFiles(e.target.files);e.target.value='';});
 
 // ── Annotation ──
 function setLabel(label){
