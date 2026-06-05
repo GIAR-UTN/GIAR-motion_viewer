@@ -112,7 +112,18 @@
   .hdr-i{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t2)}
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
-  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px}
+  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;display:flex;justify-content:space-between;align-items:center}
+  .sb-acts{display:flex;gap:5px}
+  .sb-solo{font-family:'IBM Plex Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--t2);padding:2px 8px;cursor:pointer;letter-spacing:1px}
+  .sb-solo:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+  .sb-solo:disabled{opacity:.35;cursor:default}
+  .sb-rea-pop{margin:0 12px 8px;background:rgba(8,8,15,.7);border:1px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto}
+  .sb-rea-item{display:flex;align-items:center;padding:6px 10px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t1);gap:8px}
+  .sb-rea-item:hover:not(.disabled){background:var(--hover)}
+  .sb-rea-item.disabled{color:var(--t3);cursor:not-allowed;opacity:.5}
+  .sb-rea-item.current{background:var(--active);color:var(--cyan)}
+  .sb-rea-meta{margin-left:auto;color:var(--t3);font-size:9px}
+  .sb-rchip{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,.12)}
   .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
   .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
   .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
@@ -122,6 +133,9 @@
   .sb-list{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
   .sb-i{padding:8px 14px;cursor:pointer;border-left:2px solid transparent;transition:all .12s}
   .sb-i:hover{background:var(--hover)}.sb-i.act{background:var(--active);border-left-color:var(--cyan)}
+  .sb-i.playing{border-left-color:var(--grn)}
+  .sb-i.playing.act{border-left-color:var(--cyan)}
+  .sb-dot{display:inline-block;margin-right:5px;color:var(--grn);font-size:9px;vertical-align:middle}
   .sb-n{font-size:12px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .sb-i.act .sb-n{color:#cce0ff}
   .sb-m{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);margin-top:2px}
@@ -159,6 +173,7 @@
   .lbl.abort{background:rgba(170,45,106,.2);color:var(--mag)}
   .lbl.kpkl{background:rgba(45,154,170,.18);color:var(--cyan)}
   .lbl.knpz{background:rgba(140,140,200,.16);color:#9aa6d0}
+  .lbl.kbvh{background:rgba(200,140,90,.18);color:#cc8844}
   .tb.keepon{background:rgba(45,170,106,.15);border-color:var(--grn);color:var(--grn)}
   .tb.dropon{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
 </style>
@@ -197,12 +212,19 @@
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
-      <div class="sb-l" id="sbl">Motions</div>
+      <div class="sb-l" id="sbl">
+        <span id="sblt">Motions</span>
+        <span class="sb-acts">
+          <button class="sb-solo" id="bre" disabled title="Reassign all currently-playing motions to another robot">Reassign ▾</button>
+          <button class="sb-solo" id="bso" disabled title="Remove all extras, keep only the primary motion">Solo</button>
+        </span>
+      </div>
       <div class="sb-tabs" id="st"></div>
+      <div class="sb-rea-pop" id="brep" style="display:none"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
-        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl">+ Add motion</label>
-        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz,.pkl" webkitdirectory>+ Add folder</label>
+        <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl,.bvh">+ Add motion</label>
+        <label class="sb-b"><input type="file" id="fd" multiple accept=".npz,.pkl,.bvh" webkitdirectory>+ Add folder</label>
         <button class="sb-b" id="bx">&#11015; Export CSV</button>
       </div>
     </div>
@@ -217,6 +239,7 @@
     <button class="cb" id="bp">⏸</button>
     <div class="tl"><span class="tm" id="t0">0:00.0</span><input type="range" id="sc" min="0" max="100" value="0"><span class="tm" id="t1">0:00.0</span></div>
     <div class="sg"><span class="sl">Spd</span><button class="spb" data-s="0.25">.25</button><button class="spb" data-s="0.5">.5</button><button class="spb act" data-s="1">1x</button><button class="spb" data-s="2">2x</button></div>
+    <button class="tb on" id="bal" title="Cycle align mode: Auto → Spread → As-is">Align: Auto</button>
     <button class="tb on" id="bf">Follow</button>
     <button class="tb" id="bt">Trail</button>
     <button class="tb" id="bk">&#10003; Keep</button>
@@ -468,6 +491,199 @@ function parseMJCF(xmlStr) {
   if (!rootLink) throw new Error('MJCF has no <body> under <worldbody>');
 
   return { robotName: robotName, links: links, joints: joints, root: rootLink };
+}
+
+// ── BVH Parser ─────────────────────────────────────────────────────────────
+// Self-contained: skeleton (HIERARCHY) + motion (MOTION) in one text file.
+// Returns { joints, frames, fps, data, nChan }.
+//   joints[i] = { name, parent: parentIdx|-1, offset: [x,y,z],
+//                 channels: ['Xposition'|'Yposition'|...], endSite: [x,y,z]|null }
+//   data is a Float32Array of frames * nChan, laid out as
+//   [frame0_joint0_chans..., frame0_joint1_chans..., ..., frame1_joint0_chans..., ...]
+function parseBVH(text) {
+  var lines = text.split(/\r?\n/);
+  var i = 0;
+  var joints = [];
+  var stack = [];
+
+  function skipBlank() { while (i < lines.length && lines[i].trim() === '') i++; }
+  function expectBrace() {
+    skipBlank();
+    if (i < lines.length && lines[i].trim() === '{') { i++; return; }
+    throw new Error('BVH: expected { at line ' + (i+1));
+  }
+
+  function parseJoint(name) {
+    var idx = joints.length;
+    var joint = { name: name, parent: stack.length ? stack[stack.length-1] : -1, offset: [0,0,0], channels: [], endSite: null };
+    joints.push(joint);
+    stack.push(idx);
+    expectBrace();
+    while (i < lines.length) {
+      var line = lines[i].trim();
+      if (line === '}') { i++; stack.pop(); return; }
+      var tok = line.split(/\s+/);
+      if (tok[0] === 'OFFSET') {
+        joint.offset = [parseFloat(tok[1]), parseFloat(tok[2]), parseFloat(tok[3])];
+        i++;
+      } else if (tok[0] === 'CHANNELS') {
+        var n = parseInt(tok[1], 10);
+        for (var k = 0; k < n; k++) joint.channels.push(tok[2+k]);
+        i++;
+      } else if (tok[0] === 'JOINT') {
+        i++;
+        parseJoint(tok[1]);
+      } else if (tok[0] === 'End' && tok[1] === 'Site') {
+        i++;
+        expectBrace();
+        while (i < lines.length) {
+          var l2 = lines[i].trim();
+          if (l2 === '}') { i++; break; }
+          var t2 = l2.split(/\s+/);
+          if (t2[0] === 'OFFSET') joint.endSite = [parseFloat(t2[1]), parseFloat(t2[2]), parseFloat(t2[3])];
+          i++;
+        }
+      } else {
+        i++;
+      }
+    }
+  }
+
+  // Skip until HIERARCHY → ROOT name
+  while (i < lines.length && lines[i].trim() !== 'HIERARCHY') i++;
+  if (i >= lines.length) throw new Error('BVH: no HIERARCHY section');
+  i++;
+  skipBlank();
+  while (i < lines.length) {
+    var line = lines[i].trim();
+    if (line.startsWith('ROOT')) {
+      i++;
+      parseJoint(line.split(/\s+/)[1]);
+      break;
+    }
+    i++;
+  }
+  if (!joints.length) throw new Error('BVH: no ROOT joint');
+
+  // MOTION section
+  while (i < lines.length && lines[i].trim() !== 'MOTION') i++;
+  if (i >= lines.length) throw new Error('BVH: no MOTION section');
+  i++;
+
+  var frames = 0, frameTime = 1/30;
+  while (i < lines.length) {
+    var l = lines[i].trim();
+    if (l.startsWith('Frames:')) { frames = parseInt(l.split(/\s+/)[1], 10); i++; }
+    else if (l.startsWith('Frame Time:')) { frameTime = parseFloat(l.split(/\s+/)[2]); i++; break; }
+    else i++;
+  }
+
+  var nChan = 0;
+  for (var j = 0; j < joints.length; j++) nChan += joints[j].channels.length;
+
+  var data = new Float32Array(frames * nChan);
+  var f = 0;
+  while (f < frames && i < lines.length) {
+    var raw = lines[i].trim();
+    if (raw) {
+      var vals = raw.split(/\s+/);
+      var base = f * nChan;
+      for (var k = 0; k < nChan && k < vals.length; k++) data[base + k] = parseFloat(vals[k]);
+      f++;
+    }
+    i++;
+  }
+
+  return { joints: joints, frames: frames, fps: frameTime > 0 ? 1/frameTime : 30, data: data, nChan: nChan };
+}
+
+// Compose per-frame world body poses from a parsed BVH. Walks joints in BFS
+// (parents-first; the BVH file already orders them depth-first which satisfies
+// the constraint). Auto-detects cm vs m by root height in frame 0.
+function buildBVHMotion(bvh) {
+  var nB = bvh.joints.length, nF = bvh.frames;
+  var pF = new Float32Array(nF * nB * 3);
+  var qF = new Float32Array(nF * nB * 4);
+
+  var chanStart = new Int32Array(nB);
+  var rotChan = new Int8Array(nB * 3);     // -1 = unused, 0/1/2 = local channel index for X/Y/Z rotation
+  var rotOrder = [];                       // per joint: array of axis chars in declaration order
+  var posChan = new Int8Array(nB * 3);     // -1 or local channel index for X/Y/Z position
+  var off = 0;
+  for (var i = 0; i < nB; i++) {
+    chanStart[i] = off;
+    off += bvh.joints[i].channels.length;
+    var order = [];
+    rotChan[i*3] = -1; rotChan[i*3+1] = -1; rotChan[i*3+2] = -1;
+    posChan[i*3] = -1; posChan[i*3+1] = -1; posChan[i*3+2] = -1;
+    for (var c = 0; c < bvh.joints[i].channels.length; c++) {
+      var ch = bvh.joints[i].channels[c];
+      if (ch === 'Xrotation') { rotChan[i*3] = c; order.push('X'); }
+      else if (ch === 'Yrotation') { rotChan[i*3+1] = c; order.push('Y'); }
+      else if (ch === 'Zrotation') { rotChan[i*3+2] = c; order.push('Z'); }
+      else if (ch === 'Xposition') posChan[i*3] = c;
+      else if (ch === 'Yposition') posChan[i*3+1] = c;
+      else if (ch === 'Zposition') posChan[i*3+2] = c;
+    }
+    rotOrder.push(order);
+  }
+
+  // Scale heuristic: humans in m are < 3 tall; >10 means cm (CMU/HDM05 etc).
+  var scale = 1.0;
+  if (nF > 0 && posChan[1] >= 0) {
+    var rootY = bvh.data[chanStart[0] + posChan[1]];
+    if (Math.abs(rootY) > 10) scale = 0.01;
+  }
+
+  for (var f = 0; f < nF; f++) {
+    var frameBase = f * bvh.nChan;
+    for (var i = 0; i < nB; i++) {
+      var joint = bvh.joints[i];
+      var jBase = frameBase + chanStart[i];
+
+      // Local rotation: compose per-axis quaternions in the channel-declared order.
+      // BVH applies rotations as R_total = R_first · R_second · R_third (read L→R, parent-first composition).
+      var lqw = 1, lqx = 0, lqy = 0, lqz = 0;
+      var order = rotOrder[i];
+      for (var c = 0; c < order.length; c++) {
+        var axis = order[c];
+        var localChan = axis === 'X' ? rotChan[i*3] : axis === 'Y' ? rotChan[i*3+1] : rotChan[i*3+2];
+        var deg = bvh.data[jBase + localChan];
+        var rad = deg * Math.PI / 180, s = Math.sin(rad/2), cs = Math.cos(rad/2);
+        var nw = cs, nx = axis === 'X' ? s : 0, ny = axis === 'Y' ? s : 0, nz = axis === 'Z' ? s : 0;
+        var rw = lqw*nw - lqx*nx - lqy*ny - lqz*nz;
+        var rx = lqw*nx + lqx*nw + lqy*nz - lqz*ny;
+        var ry = lqw*ny - lqx*nz + lqy*nw + lqz*nx;
+        var rz = lqw*nz + lqx*ny - lqy*nx + lqz*nw;
+        lqw = rw; lqx = rx; lqy = ry; lqz = rz;
+      }
+
+      var outP = (f * nB + i) * 3, outQ = (f * nB + i) * 4;
+
+      if (joint.parent < 0) {
+        var tx = (posChan[i*3]   >= 0 ? bvh.data[jBase + posChan[i*3]]   : 0) + joint.offset[0];
+        var ty = (posChan[i*3+1] >= 0 ? bvh.data[jBase + posChan[i*3+1]] : 0) + joint.offset[1];
+        var tz = (posChan[i*3+2] >= 0 ? bvh.data[jBase + posChan[i*3+2]] : 0) + joint.offset[2];
+        pF[outP] = tx * scale; pF[outP+1] = ty * scale; pF[outP+2] = tz * scale;
+        qF[outQ] = lqw; qF[outQ+1] = lqx; qF[outQ+2] = lqy; qF[outQ+3] = lqz;
+      } else {
+        var pi = joint.parent;
+        var pP = (f * nB + pi) * 3, pQ = (f * nB + pi) * 4;
+        var pw = qF[pQ], px = qF[pQ+1], py = qF[pQ+2], pz = qF[pQ+3];
+        var vx = joint.offset[0] * scale, vy = joint.offset[1] * scale, vz = joint.offset[2] * scale;
+        var ttx = 2*(py*vz - pz*vy), tty = 2*(pz*vx - px*vz), ttz = 2*(px*vy - py*vx);
+        pF[outP]   = pF[pP]   + vx + pw*ttx + py*ttz - pz*tty;
+        pF[outP+1] = pF[pP+1] + vy + pw*tty + pz*ttx - px*ttz;
+        pF[outP+2] = pF[pP+2] + vz + pw*ttz + px*tty - py*ttx;
+        qF[outQ]   = pw*lqw - px*lqx - py*lqy - pz*lqz;
+        qF[outQ+1] = pw*lqx + px*lqw + py*lqz - pz*lqy;
+        qF[outQ+2] = pw*lqy - px*lqz + py*lqw + pz*lqx;
+        qF[outQ+3] = pw*lqz + px*lqy - py*lqx + pz*lqw;
+      }
+    }
+  }
+
+  return { fps: bvh.fps, nF: nF, nB: nB, pF: pF, qF: qF, yUp: true, scale: scale };
 }
 
 // ── BFS Body Ordering (matches IsaacLab) ──
@@ -998,12 +1214,36 @@ scene.add(new THREE.Mesh(
 var grd=new THREE.GridHelper(30,60,0x222244,0x181830);
 grd.position.y=.001;scene.add(grd);
 
-// Dynamic body groups
+// Dynamic body groups (primary instance, driven by mots[aIdx])
 var LG = [];
 var bodyNames = [];
 var nBodies = 0;
 var meshLoaded = false;
 var fkInfo = null;
+
+// Multi-motion playback: ctrl/cmd-click toggles a motion in the playing set.
+// Each "extra" is its own scene-attached set of body Groups bound to a
+// specific mIdx so we can render N motions at the same wall-clock time.
+var extras = [];
+
+// Robot library. loadRobot / each BVH file only REGISTER an entry here;
+// they don't touch the running scene. A separate activateRobot() builds
+// LG from a robot's template — that's the single place that swaps out the
+// rendered skeleton. Drop-session orphan motions (NPZ/PKL with no URDF in
+// the same drop) bind to the most-recently-loaded rigid robot.
+var robots = [];           // [{id, name, kind:'rigid'|'bvh', color, template, nB}]
+var nextRobotId = 1;
+var currentRobotId = null; // robot the in-scene primary LG was built from
+var lastRigidRobotId = null;
+var ROBOT_COLORS = ['#2d9aaa','#cc8844','#aa2d6a','#6acc44','#9944cc','#dd9933','#3366cc','#dd4488'];
+function makeRobot(kind, template, name, nB) {
+  var r = { id: 'r' + (nextRobotId++), name: name, kind: kind, color: ROBOT_COLORS[robots.length % ROBOT_COLORS.length], template: template, nB: nB };
+  robots.push(r);
+  if (kind === 'rigid') lastRigidRobotId = r.id;
+  return r;
+}
+function robotById(id) { for (var i = 0; i < robots.length; i++) if (robots[i].id === id) return robots[i]; return null; }
+function currentRobot() { return robotById(currentRobotId); }
 
 // Trail
 var trl=new THREE.Line(
@@ -1016,63 +1256,117 @@ scene.add(trl);trl.visible=false;var tPts=[];
 var RF=new THREE.Quaternion(-0.7071067811865475,0,0,0.7071067811865476);
 var _tq=new THREE.Quaternion();
 
-function clearRobot() {
-  for (var i = 0; i < LG.length; i++) {
-    scene.remove(LG[i]);
-    LG[i].traverse(function(c) {
+function disposeGroupArray(arr) {
+  for (var i = 0; i < arr.length; i++) {
+    scene.remove(arr[i]);
+    arr[i].traverse(function(c) {
       if (c.geometry) c.geometry.dispose();
       if (c.material) c.material.dispose();
     });
   }
+}
+function clearRobot() {
+  disposeGroupArray(LG);
   LG = [];
   bodyNames = [];
   nBodies = 0;
   meshLoaded = false;
   fkInfo = null;
+  currentRobotId = null;
+  for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
+  extras = [];
   for (var i = 0; i < mots.length; i++) {
     if (mots[i].raw) mots[i].d = null;
   }
 }
 
-function loadRobot(descText, stlMap) {
-  clearRobot();
-  var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
-  var bodies = computeBodyOrder(urdf);
-  nBodies = bodies.length;
+// Multi-play extras (additional motions playing alongside the primary).
+function clearExtras() {
+  for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
+  extras = [];
+}
+function extraIdx(mIdx) {
+  for (var i = 0; i < extras.length; i++) if (extras[i].mIdx === mIdx) return i;
+  return -1;
+}
+function removeExtra(mIdx) {
+  var k = extraIdx(mIdx);
+  if (k < 0) return;
+  disposeGroupArray(extras[k].LG);
+  extras.splice(k, 1);
+}
+// Build & attach a fresh instance bound to mIdx, rendered against its own
+// robot's template (not the primary's). Returns true on success.
+function addExtra(mIdx) {
+  if (!mots[mIdx] || !mots[mIdx].d) return false;
+  if (extraIdx(mIdx) >= 0) return false;
+  var r = robotById(mots[mIdx].robotId);
+  if (!r) return false;
+  var built = null, yUp = false;
+  if (r.kind === 'bvh') {
+    built = buildBVHLG(r.template.bvh, r.template.scale);
+    yUp = true;
+  } else {
+    built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
+  }
+  if (!built) return false;
+  for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
+  extras.push({ mIdx: mIdx, LG: built.LG, names: built.names, nB: built.LG.length, yUp: yUp, robotId: r.id });
+  return true;
+}
+function isPlaying(mIdx) {
+  return mIdx === aIdx || extraIdx(mIdx) >= 0;
+}
+function playingMotions() {
+  var ms = [];
+  if (mots[aIdx] && mots[aIdx].d) ms.push(mots[aIdx].d);
+  for (var i = 0; i < extras.length; i++) {
+    var d = mots[extras[i].mIdx] && mots[extras[i].mIdx].d;
+    if (d) ms.push(d);
+  }
+  return ms;
+}
+function longestPlayingDur() {
+  var dur = 0;
+  var arr = playingMotions();
+  for (var i = 0; i < arr.length; i++) {
+    var d = arr[i].nF / arr[i].fps;
+    if (d > dur) dur = d;
+  }
+  return dur;
+}
 
-  var stlKeys = Object.keys(stlMap);
-  console.log('Robot: ' + urdf.robotName + ', bodies: ' + nBodies + ', STL files available: ' + stlKeys.length);
-  console.log('STL map keys:', stlKeys.sort().join(', '));
-  bodies.forEach(function(b, i) {
-    var fm = b.fixedMeshes.map(function(f){return f.file;});
-    console.log('  [' + i + '] ' + b.name + ' meshes=' + JSON.stringify(b.meshes) + (fm.length ? ' fixed=' + JSON.stringify(fm) : ''));
-  });
-
+// Pure helper: builds a fresh set of body Groups from a rigid-robot template
+// (URDF/MJCF). Returns {LG, names, loaded, missing}. Does NOT add to scene
+// and does NOT touch globals — so we can call it once for the primary and
+// again per extra motion when multi-play is on.
+function buildRigidLG(bodies, stlMap, verbose) {
+  var LG2 = [], names2 = [];
   var loaded = 0, missing = 0;
-  for (var i = 0; i < nBodies; i++) {
+  for (var i = 0; i < bodies.length; i++) {
     var body = bodies[i];
     var grp = new THREE.Group();
     grp.visible = true;
-    bodyNames.push(body.name);
+    names2.push(body.name);
 
-    var col = body.rgba ? rgbaToHex(body.rgba) : bodyColor(body.name, i, nBodies);
+    var col = body.rgba ? rgbaToHex(body.rgba) : bodyColor(body.name, i, bodies.length);
     var mat = new THREE.MeshStandardMaterial({color:col,roughness:.45,metalness:.3});
 
     body.meshes.forEach(function(mf) {
       var buf = stlMap[mf.toLowerCase()];
-      if (!buf) { console.warn('Missing body mesh: ' + mf + ' (key: ' + mf.toLowerCase() + ')'); missing++; return; }
+      if (!buf) { if (verbose) console.warn('Missing body mesh: ' + mf + ' (key: ' + mf.toLowerCase() + ')'); missing++; return; }
       try {
         var geo = parseSTL(buf);
         var mesh = new THREE.Mesh(geo, mat);
         mesh.castShadow = true; mesh.receiveShadow = true;
         grp.add(mesh);
         loaded++;
-      } catch(e) { console.error('STL parse error: ' + mf, e); }
+      } catch(e) { if (verbose) console.error('STL parse error: ' + mf, e); }
     });
 
     body.fixedMeshes.forEach(function(fm) {
       var buf = stlMap[fm.file.toLowerCase()];
-      if (!buf) { console.warn('Missing fixed mesh: ' + fm.file + ' for body ' + body.name + ' (key: ' + fm.file.toLowerCase() + ')'); missing++; return; }
+      if (!buf) { if (verbose) console.warn('Missing fixed mesh: ' + fm.file + ' for body ' + body.name + ' (key: ' + fm.file.toLowerCase() + ')'); missing++; return; }
       try {
         var geo = parseSTL(buf);
         var ox = fm.xyz[0], oy = fm.xyz[1], oz = fm.xyz[2];
@@ -1095,24 +1389,160 @@ function loadRobot(descText, stlMap) {
         mesh.castShadow = true; mesh.receiveShadow = true;
         grp.add(mesh);
         loaded++;
-        console.log('  Fixed mesh loaded: ' + fm.file + ' -> body ' + body.name + ' offset=(' + fm.xyz.join(',') + ')');
-      } catch(e) { console.error('Fixed mesh error: ' + fm.file, e); }
+        if (verbose) console.log('  Fixed mesh loaded: ' + fm.file + ' -> body ' + body.name + ' offset=(' + fm.xyz.join(',') + ')');
+      } catch(e) { if (verbose) console.error('Fixed mesh error: ' + fm.file, e); }
     });
 
-    scene.add(grp);
-    LG.push(grp);
+    LG2.push(grp);
   }
+  return { LG: LG2, names: names2, loaded: loaded, missing: missing };
+}
 
+// REGISTERS a rigid robot in the library. Does NOT touch the running scene.
+// Returns the new robot record so callers know what robotId to bind motions to.
+function loadRobot(descText, stlMap) {
+  var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
+  var bodies = computeBodyOrder(urdf);
+  var name = urdf.robotName || 'robot';
+  console.log('Robot register: ' + name + ', bodies: ' + bodies.length + ', STL keys: ' + Object.keys(stlMap).length);
+  var r = makeRobot('rigid', { urdf: urdf, bodies: bodies, stlMap: stlMap }, name, bodies.length);
+  $('ms').textContent = name + ' added to library (' + bodies.length + ' bodies)';
+  $('ms').className = 'ms ok';
+  return r;
+}
+
+// BUILDS LG from a robot's template and makes it the current in-scene
+// primary. Tears down whatever LG was previously rendered. Also tears down
+// extras since their meshes were bound to the OLD scene's robot life-cycle.
+function activateRobot(r) {
+  if (!r) return;
+  disposeGroupArray(LG);
+  LG = []; bodyNames = []; nBodies = 0;
+  for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
+  extras = [];
+  var built;
+  if (r.kind === 'rigid') {
+    built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
+    fkInfo = buildFKChain(r.template.urdf, r.template.bodies);
+  } else {
+    built = buildBVHLG(r.template.bvh, r.template.scale);
+    fkInfo = null;
+  }
+  for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
+  LG = built.LG; bodyNames = built.names; nBodies = built.LG.length;
   meshLoaded = true;
-  fkInfo = buildFKChain(urdf, bodies);
-  var statusText = urdf.robotName + ' loaded (' + loaded + ' meshes, ' + nBodies + ' bodies)';
-  if (missing) statusText += ' — ' + missing + ' missing';
-  $('ms').textContent = statusText;
-  $('ms').className = missing ? 'ms warn' : 'ms ok';
-  console.log(statusText);
-  $('hi').textContent = urdf.robotName + ' | ' + nBodies + ' bodies';
-  ensureFK();
-  return nBodies;
+  currentRobotId = r.id;
+  if (r.kind === 'rigid') ensureFK();
+  $('hi').textContent = r.name + ' | ' + nBodies + (r.kind === 'bvh' ? ' joints' : ' bodies');
+}
+
+// Switch the primary motion. If the new motion lives on a different robot
+// than the one currently rendered, rebuild LG from that robot's template.
+// Extras are dropped on cross-robot switch (their old robot is gone too).
+// On same-robot switch (e.g. clicking a sibling NPZ), only aIdx changes —
+// LG, extras, and the clock are preserved.
+function switchPrimary(mIdx) {
+  if (!mots[mIdx]) return;
+  if (aIdx === mIdx && meshLoaded) return;
+  var r = robotById(mots[mIdx].robotId);
+  if (!r) return;
+  removeExtra(mIdx);
+  if (currentRobotId !== r.id) activateRobot(r);
+  aIdx = mIdx;
+  cFr = 0;
+  tPts = [];
+  rSb(); uUI();
+}
+
+// Returns the array of motion indices currently in the playing set
+// (primary first, then extras in order).
+function playingMotionIdxs() {
+  var arr = [];
+  if (mots[aIdx] && mots[aIdx].d) arr.push(aIdx);
+  for (var i = 0; i < extras.length; i++) arr.push(extras[i].mIdx);
+  return arr;
+}
+function anyPlayingIsBVH() {
+  var idxs = playingMotionIdxs();
+  for (var i = 0; i < idxs.length; i++) {
+    var rb = robotById(mots[idxs[i]].robotId);
+    if (rb && rb.kind === 'bvh') return true;
+  }
+  return false;
+}
+function rigidRobotCompatibleWith(r, mIdx) {
+  if (r.kind !== 'rigid') return false;
+  var m = mots[mIdx]; if (!m) return false;
+  var nB = m.d ? m.d.nB : null;
+  if (nB == null) return true;     // PKL pre-FK: optimistically allow
+  return r.nB === nB;
+}
+
+function reassignTo(robotId) {
+  var newR = robotById(robotId); if (!newR || newR.kind !== 'rigid') return;
+  var playing = playingMotionIdxs();
+  if (!playing.length) return;
+  // Change robotId for every rigid playing motion.
+  for (var i = 0; i < playing.length; i++) {
+    var rb = robotById(mots[playing[i]].robotId);
+    if (rb && rb.kind === 'rigid') mots[playing[i]].robotId = robotId;
+  }
+  // Rebuild the primary scene and the extras using the new template.
+  if (mots[aIdx]) {
+    var oldExtras = extras.map(function(e){return e.mIdx;});
+    activateRobot(newR);
+    for (var j = 0; j < oldExtras.length; j++) {
+      // Only re-add rigid extras (BVH extras stay on their own skeleton,
+      // but activateRobot already disposed them — re-add them too).
+      addExtra(oldExtras[j]);
+    }
+  }
+  rSb(); uUI();
+}
+
+// Render the inline reassign popup. RIGID-only — BVH skeletons are file-
+// bound and don't belong in this menu. Rows are disabled when at least one
+// playing motion can't render on that robot, or when any playing motion is
+// BVH (BVH motions can't be reassigned at all).
+function renderReassignPopup() {
+  var pop = $('brep');
+  pop.innerHTML = '';
+  if (anyPlayingIsBVH()) { pop.style.display = 'none'; return; }
+  var playing = playingMotionIdxs();
+  var rigid = robots.filter(function(r){return r.kind === 'rigid';});
+  if (!rigid.length) { pop.style.display = 'none'; return; }
+  rigid.forEach(function(r) {
+    var compat = playing.length ? playing.every(function(mi){return rigidRobotCompatibleWith(r, mi);}) : true;
+    var isCurrent = currentRobotId === r.id;
+    var item = document.createElement('div');
+    item.className = 'sb-rea-item' + (compat ? '' : ' disabled') + (isCurrent ? ' current' : '');
+    item.innerHTML = '<span class="sb-rchip" style="background:'+r.color+'"></span>' +
+                     '<span>'+r.name+(isCurrent?' ★':'')+'</span>' +
+                     '<span class="sb-rea-meta">'+r.nB+' bodies</span>';
+    if (compat && !isCurrent) {
+      item.onclick = function(){ reassignTo(r.id); pop.style.display = 'none'; };
+    }
+    pop.appendChild(item);
+  });
+}
+
+// End of a drop session. Two cases:
+//  (a) New motions arrived: the FIRST new motion becomes primary. If no
+//      scene was running, that means we adopt it; if a scene was already
+//      running, the same call (switchPrimary) does the cross-robot switch
+//      so the user immediately sees what they just dropped.
+//  (b) Only a robot arrived, no motions: if nothing is rendered yet, show
+//      the robot at default pose so the drop wasn't silent. Otherwise the
+//      robot just sits in the library waiting to be assigned.
+function finalizeDropSession(firstNewMotionIdx, sessionRobot) {
+  if (firstNewMotionIdx != null && mots[firstNewMotionIdx]) {
+    switchPrimary(firstNewMotionIdx);
+    return;
+  }
+  if (sessionRobot && !meshLoaded) {
+    activateRobot(sessionRobot);
+    rSb(); uUI();
+  }
 }
 
 function ensureFK(){
@@ -1127,19 +1557,130 @@ function ensureFK(){
   if(any){rSb();uUI();}
 }
 
-function updatePose(mot, fr) {
+function updatePoseLG(lgArr, mot, fr, off) {
   var nb = mot.nB, pf = mot.pF, qf = mot.qF;
-  var count = Math.min(LG.length, nb);
+  var count = Math.min(lgArr.length, nb);
+  var yUp = !!mot.yUp;
+  var ox = off ? off.x : 0, oy = off ? off.y : 0, oz = off ? off.z : 0;
   for (var i = 0; i < count; i++) {
-    var g = LG[i];
+    var g = lgArr[i];
     var pb = (fr * nb + i) * 3;
-    g.position.set(pf[pb], pf[pb+2], -pf[pb+1]);
+    var x = pf[pb] + ox, y = pf[pb+1] + oy, z = pf[pb+2] + oz;
+    if (yUp) g.position.set(x, y, z);
+    else g.position.set(x, z, -y);
     if (qf) {
       var qb = (fr * nb + i) * 4;
       _tq.set(qf[qb+1], qf[qb+2], qf[qb+3], qf[qb]);
-      g.quaternion.multiplyQuaternions(RF, _tq);
+      if (yUp) g.quaternion.copy(_tq);
+      else g.quaternion.multiplyQuaternions(RF, _tq);
     }
   }
+}
+function updatePose(mot, fr) { updatePoseLG(LG, mot, fr, computeAlignOffset(mot, 0)); }
+
+// Pure builder for a BVH skeleton instance. Returns {LG, names} without
+// touching globals — caller adds to scene + syncs to LG/bodyNames if it's
+// the primary, or stores on an extra-motion instance for multi-play.
+function buildBVHLG(bvh, scale) {
+  var LG2 = [], names2 = [];
+  var nJ = bvh.joints.length;
+  var sampleLen = 0;
+  for (var s = 1; s < nJ && sampleLen < 1e-3; s++) {
+    var jo = bvh.joints[s].offset;
+    sampleLen = Math.sqrt(jo[0]*jo[0] + jo[1]*jo[1] + jo[2]*jo[2]) * scale;
+  }
+  var jointR = Math.max(0.012, Math.min(0.035, sampleLen * 0.18));
+  var boneR  = Math.max(0.010, jointR * 0.80);
+  var sphereGeo = new THREE.SphereGeometry(jointR, 14, 10);
+  var tipGeo    = new THREE.SphereGeometry(jointR * 0.6, 10, 8);
+
+  function addBone(grp, offVec, color) {
+    var vx = offVec[0] * scale, vy = offVec[1] * scale, vz = offVec[2] * scale;
+    var len = Math.sqrt(vx*vx + vy*vy + vz*vz);
+    if (len < 1e-4) return;
+    var fullLen = len + 2 * jointR;
+    var geo = new THREE.CylinderGeometry(boneR, boneR, fullLen, 10);
+    var mat = new THREE.MeshStandardMaterial({color: color, roughness: 0.55, metalness: 0.2});
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, len/2, 0);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    var pivot = new THREE.Group();
+    pivot.add(mesh);
+    var q = new THREE.Quaternion();
+    q.setFromUnitVectors(new THREE.Vector3(0,1,0), new THREE.Vector3(vx/len, vy/len, vz/len));
+    pivot.quaternion.copy(q);
+    grp.add(pivot);
+  }
+  function addTipMarker(grp, offVec) {
+    var sx = offVec[0] * scale, sy = offVec[1] * scale, sz = offVec[2] * scale;
+    if (Math.sqrt(sx*sx + sy*sy + sz*sz) < 1e-4) return;
+    var tipMat = new THREE.MeshStandardMaterial({color: 0x888899, roughness: 0.45, metalness: 0.25});
+    var tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.position.set(sx, sy, sz);
+    tip.castShadow = true; tip.receiveShadow = true;
+    grp.add(tip);
+  }
+
+  for (var i = 0; i < nJ; i++) {
+    var joint = bvh.joints[i];
+    var grp = new THREE.Group();
+    names2.push(joint.name);
+    var col = bodyColor(joint.name, i, nJ);
+    var sphereMat = new THREE.MeshStandardMaterial({color: col, roughness: 0.4, metalness: 0.3});
+    var sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    sphere.castShadow = true; sphere.receiveShadow = true;
+    grp.add(sphere);
+    for (var c = 0; c < nJ; c++) {
+      if (bvh.joints[c].parent === i) addBone(grp, bvh.joints[c].offset, 0xcc8844);
+    }
+    if (joint.endSite) {
+      addBone(grp, joint.endSite, 0x888899);
+      addTipMarker(grp, joint.endSite);
+    }
+    LG2.push(grp);
+  }
+  return { LG: LG2, names: names2 };
+}
+
+// Each BVH file carries its own skeleton, so it registers as its own robot
+// in the library. No scene change here — finalize-session decides whether
+// to adopt the new motion as primary and call activateRobot.
+function loadBVHFromText(text, baseName) {
+  var bvh = parseBVH(text);
+  var motion = buildBVHMotion(bvh);
+  var r = makeRobot('bvh', { bvh: bvh, scale: motion.scale }, baseName, bvh.joints.length);
+  mots.push({ name: baseName, d: motion, label: null, robotId: r.id });
+  console.log('BVH register: ' + baseName + ' — ' + bvh.frames + 'f @ ' + bvh.fps.toFixed(1) + 'fps, ' + bvh.joints.length + ' joints, scale=' + motion.scale + ' (' + r.id + ')');
+}
+
+function loadBVH(files) {
+  var bf = [];
+  for (var i = 0; i < files.length; i++)
+    if (files[i].name.toLowerCase().endsWith('.bvh')) bf.push(files[i]);
+  if (!bf.length) return;
+  bf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var to = $('to'); to.style.display = 'block';
+  var fn = mots.length, ix = 0;
+  function nx() {
+    if (ix >= bf.length) {
+      to.style.display = 'none';
+      var firstNew = fn < mots.length ? fn : null;
+      finalizeDropSession(firstNew, null);
+      return;
+    }
+    var f = bf[ix];
+    to.textContent = 'Loading ' + (ix+1) + '/' + bf.length + ': ' + f.name;
+    ix++;
+    var rd = new FileReader();
+    rd.onload = function(ev) {
+      try { loadBVHFromText(ev.target.result, f.name.replace(/\.bvh$/i, '')); }
+      catch(e) { console.error(f.name, e); }
+      setTimeout(nx, 5);
+    };
+    rd.onerror = function(){ setTimeout(nx, 5); };
+    rd.readAsText(f);
+  }
+  nx();
 }
 
 // ── Orbit Camera ──
@@ -1207,18 +1748,42 @@ cv.addEventListener('touchend',function(e){if(e.touches.length<2){drg=0;tch0=nul
 window.addEventListener('resize',function(){W=vp.clientWidth;H=vp.clientHeight;cam.aspect=W/H;cam.updateProjectionMatrix();rn.setSize(W,H);});
 
 // ── State ──
-var mots=[],aIdx=0,cFr=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all';
+var mots=[],aIdx=0,cFr=0,cTime=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all',alignMode='auto';
+var SPREAD_STEP = 1.5;
+// Computes a world translation to apply to all bodies of an instance, in
+// the motion's own coord system (XY for Z-up, XZ for Y-up) so the existing
+// yUp/Zup swap in updatePoseLG handles them with no extra math.
+//   'asis'   — no offset (raw data positions)
+//   'auto'   — subtract motion's frame-0 horizontal root pos so first
+//              frame lands at world origin; vertical axis preserved so
+//              characters keep their standing height
+//   'spread' — push instance i along world +X by SPREAD_STEP * i so
+//              multiple robots line up side-by-side
+function computeAlignOffset(mot, instanceIdx) {
+  if (!mot || !mot.pF || mot.nF < 1) return null;
+  if (alignMode === 'asis') return null;
+  if (alignMode === 'spread') return { x: SPREAD_STEP * instanceIdx, y: 0, z: 0 };
+  var rx = mot.pF[0], ry = mot.pF[1], rz = mot.pF[2];
+  return mot.yUp ? { x: -rx, y: 0, z: -rz } : { x: -rx, y: -ry, z: 0 };
+}
+function fmtS(sec){var s=isFinite(sec)?sec:0,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
+function motFrameAt(mot, t) { return Math.min(Math.max(0, Math.floor(t * mot.fps)), mot.nF - 1); }
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
-function motKind(m){return m && m.raw ? 'pkl' : 'npz';}
+function motKind(m){
+  if(!m) return 'npz';
+  if(m.d && m.d.yUp) return 'bvh';
+  if(m.raw) return 'pkl';
+  return 'npz';
+}
 function rSb(){
   var el=$('sl');el.innerHTML='';
-  var counts={all:mots.length,pkl:0,npz:0},labeled={all:0,pkl:0,npz:0};
+  var counts={all:mots.length,pkl:0,npz:0,bvh:0},labeled={all:0,pkl:0,npz:0,bvh:0};
   for(var i=0;i<mots.length;i++){
     var k=motKind(mots[i]);counts[k]++;
     if(mots[i].label){labeled.all++;labeled[k]++;}
   }
   var tabsEl=$('st');tabsEl.innerHTML='';
-  var tabs=[['all','All'],['npz','NPZ'],['pkl','PKL']];
+  var tabs=[['all','All'],['npz','NPZ'],['pkl','PKL'],['bvh','BVH']];
   tabs.forEach(function(t){
     var key=t[0],lbl=t[1];
     var b=document.createElement('button');
@@ -1234,19 +1799,48 @@ function rSb(){
     if(sbFilter!=='all'&&k!==sbFilter)continue;
     var d=document.createElement('div');
     var badge=m.label==='keep'?'<span class="lbl keep">keep</span>':m.label==='abort'?'<span class="lbl abort">drop</span>':'';
-    var kindTag='<span class="lbl '+(k==='pkl'?'kpkl':'knpz')+'">'+k+'</span>';
-    d.className='sb-i'+(i===aIdx?' act':'');
+    var kindCls=k==='pkl'?'kpkl':k==='bvh'?'kbvh':'knpz';
+    var kindTag='<span class="lbl '+kindCls+'">'+k+'</span>';
+    var extraOn = i!==aIdx && extraIdx(i)>=0;
+    d.className='sb-i'+(i===aIdx?' act':'')+(extraOn?' playing':'');
     var info=m.d||m.raw||{nF:0,fps:0};
     var meta=info.nF?(info.nF+'f\u00b7'+info.fps+'fps\u00b7'+(info.nF/info.fps).toFixed(1)+'s'):'\u2026';
     if(!m.d&&m.raw)meta+=' \u00b7 awaiting robot';
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
+    var playDot = extraOn ? '<span class="sb-dot">\u25b6</span>' : '';
+    var rb = robotById(m.robotId);
+    var rChip = rb ? '<span class="sb-rchip" style="background:'+rb.color+'" title="'+rb.name+'"></span>' : '';
+    d.innerHTML='<div class="sb-n" title="'+m.name+(rb?' \u2014 '+rb.name:'')+'">'+rChip+playDot+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
     d.setAttribute('data-i',i);
-    d.onclick=function(){aIdx=parseInt(this.getAttribute('data-i'));cFr=0;tPts=[];rSb();uUI();};
+    d.onclick=function(ev){
+      var ii=parseInt(this.getAttribute('data-i'));
+      if(ev && (ev.ctrlKey || ev.metaKey)){
+        // Toggle membership in the extras set. Primary is always playing,
+        // so ctrl-clicking the primary is a no-op (use a plain click on
+        // another motion to switch primary).
+        if(ii===aIdx) return;
+        if(extraIdx(ii)>=0) removeExtra(ii);
+        else addExtra(ii);
+        rSb();uUI();
+        return;
+      }
+      // Plain click: switch primary. switchPrimary handles cross-robot
+      // rebuilds and same-robot fast paths; extras are preserved on the
+      // same-robot path and dropped only when the robot itself changes.
+      switchPrimary(ii);
+    };
     el.appendChild(d);
     if(i===aIdx)actEl=d;
   }
   var headLbl=sbFilter==='all'?'Motions':sbFilter.toUpperCase();
-  $('sbl').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
+  $('sblt').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
+  $('bso').disabled = extras.length === 0;
+  $('bso').textContent = extras.length ? 'Solo (\u2212' + extras.length + ')' : 'Solo';
+  // Reassign is rigid-only, so disable when any playing motion is BVH OR
+  // there's fewer than two rigid robots in the library.
+  var hasPrimary = mots[aIdx] && mots[aIdx].d;
+  var rigidCount = robots.filter(function(r){return r.kind==='rigid';}).length;
+  $('bre').disabled = !hasPrimary || rigidCount < 2 || anyPlayingIsBVH();
+  if ($('bre').disabled) $('brep').style.display = 'none';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -1256,10 +1850,14 @@ function uUI(){
   var m=mots[aIdx]?mots[aIdx].d:null;
   if(!m){$('ctrlBar').style.display='none';$('ov').style.display='none';$('es').style.display='flex';return;}
   $('es').style.display='none';$('ctrlBar').style.display='flex';$('ov').style.display='block';
-  $('sc').max=m.nF-1;$('sc').value=cFr;
-  $('t0').textContent=fmt(cFr,m.fps);$('t1').textContent=fmt(m.nF-1,m.fps);
+  var longest = longestPlayingDur();
+  var sliderMax = Math.max(1, Math.round(longest*1000));
+  $('sc').max = sliderMax;
+  $('sc').value = Math.min(sliderMax, Math.round(cTime*1000));
+  $('t0').textContent = fmtS(cTime);
+  $('t1').textContent = fmtS(longest);
   $('bp').textContent=play?'\u23f8':'\u25b6';
-  $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmt(cFr,m.fps)+'<span class="s">|</span>f'+cFr+'/'+(m.nF-1);
+  $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmtS(cTime)+'<span class="s">|</span>f'+cFr+'/'+(m.nF-1)+(extras.length?'<span class="s">|</span>+'+extras.length:'');
   $('bk').classList.toggle('keepon',mots[aIdx].label==='keep');
   $('bd').classList.toggle('dropon',mots[aIdx].label==='abort');
   if (meshLoaded && m.nB !== nBodies) {
@@ -1269,18 +1867,28 @@ function uUI(){
 }
 
 // ── NPZ loading ──
-function loadNPZ(files){
+function loadNPZ(files, sessionRobotId){
   var nf=[];
   for(var i=0;i<files.length;i++)
     if(files[i].name.toLowerCase().endsWith('.npz'))nf.push(files[i]);
   if(!nf.length)return;
   nf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Orphan motions (drop without a URDF in this session) attach to the most
+  // recently loaded RIGID robot — never to a BVH (BVH skeleton is file-bound).
+  var bindRobotId = sessionRobotId || lastRigidRobotId;
+  if (!bindRobotId) {
+    console.warn('NPZ dropped without any rigid robot in the library — drop URDF/MJCF first. Skipping ' + nf.length + ' file(s).');
+    $('ms').textContent='⚠ No URDF/MJCF loaded — drop a robot first';
+    $('ms').className='ms warn';
+    return;
+  }
   var to=$('to');to.style.display='block';
   var fn=mots.length,ix=0;
   function nx(){
     if(ix>=nf.length){
       to.style.display='none';
-      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();uUI();}
+      var firstNew = fn < mots.length ? fn : null;
+      finalizeDropSession(firstNew, null);
       return;
     }
     var f=nf[ix];
@@ -1292,7 +1900,7 @@ function loadNPZ(files){
         var a=await parseNPZ(ev.target.result);
         if(a.body_pos_w){
           var d=extractMotion(a);
-          mots.push({name:f.name.replace('.npz',''),d:d,label:null});
+          mots.push({name:f.name.replace('.npz',''),d:d,label:null,robotId:bindRobotId});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -1304,18 +1912,27 @@ function loadNPZ(files){
 }
 
 // ── PKL loading (root + DoF → FK to world body poses) ──
-function loadPKL(files){
+function loadPKL(files, sessionRobotId){
   var pf=[];
   for(var i=0;i<files.length;i++)
     if(files[i].name.toLowerCase().endsWith('.pkl'))pf.push(files[i]);
   if(!pf.length)return;
   pf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var bindRobotId = sessionRobotId || lastRigidRobotId;
+  if (!bindRobotId) {
+    console.warn('PKL dropped without any rigid robot in the library — drop URDF/MJCF first. Skipping ' + pf.length + ' file(s).');
+    $('ms').textContent='⚠ No URDF/MJCF loaded — drop a robot first';
+    $('ms').className='ms warn';
+    return;
+  }
   var to=$('to');to.style.display='block';
   var fn=mots.length,ix=0;
   function nx(){
     if(ix>=pf.length){
       to.style.display='none';
-      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();ensureFK();uUI();}
+      var firstNew = fn < mots.length ? fn : null;
+      ensureFK();
+      finalizeDropSession(firstNew, null);
       return;
     }
     var f=pf[ix];
@@ -1333,14 +1950,14 @@ function loadPKL(files){
             var key=clips[ci];
             try{
               var raw=extractPKLMotion(pk[key]);
-              mots.push({name:base+'::'+key,d:null,raw:raw,label:null});
+              mots.push({name:base+'::'+key,d:null,raw:raw,label:null,robotId:bindRobotId});
               ok++;
             }catch(e){console.warn(base+'::'+key+' skipped:',e.message);}
           }
           console.log(base+': loaded '+ok+'/'+clips.length+' clips');
         } else {
           var raw=extractPKLMotion(pk);
-          mots.push({name:base,d:null,raw:raw,label:null});
+          mots.push({name:base,d:null,raw:raw,label:null,robotId:bindRobotId});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -1352,14 +1969,16 @@ function loadPKL(files){
 }
 
 function loadMotionFiles(files){
-  var npz=[],pkl=[];
+  var npz=[],pkl=[],bvh=[];
   for(var i=0;i<files.length;i++){
     var n=files[i].name.toLowerCase();
     if(n.endsWith('.npz'))npz.push(files[i]);
     else if(n.endsWith('.pkl'))pkl.push(files[i]);
+    else if(n.endsWith('.bvh'))bvh.push(files[i]);
   }
   if(npz.length)loadNPZ(npz);
   if(pkl.length)loadPKL(pkl);
+  if(bvh.length)loadBVH(bvh);
 }
 
 // ── Drag & Drop ──
@@ -1379,18 +1998,23 @@ document.body.addEventListener('drop',function(e){
 });
 
 function procEntries(entries) {
-  var stl={}, npz=[], pkl=[], descText=null, pend=0, finished=false;
+  var stl={}, npz=[], pkl=[], bvh=[], descText=null, pend=0, finished=false;
   var to=$('to');to.style.display='block';to.textContent='Scanning...';
 
   function done(){
     if(pend>0||finished)return;
     finished=true;
     to.style.display='none';
+    var sessionRobot = null;
     if(descText && Object.keys(stl).length) {
-      try { loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
+      try { sessionRobot = loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
     }
-    if(npz.length) loadNPZ(npz);
-    if(pkl.length) loadPKL(pkl);
+    var bindId = sessionRobot ? sessionRobot.id : null;
+    var anyMotion = npz.length || pkl.length || bvh.length;
+    if(npz.length) loadNPZ(npz, bindId);
+    if(pkl.length) loadPKL(pkl, bindId);
+    if(bvh.length) loadBVH(bvh);
+    if (sessionRobot && !anyMotion) finalizeDropSession(null, sessionRobot);
   }
 
   function readEntry(en) {
@@ -1419,6 +2043,8 @@ function procEntries(entries) {
           npz.push(f); pend--; done();
         } else if (lo.endsWith('.pkl')) {
           pkl.push(f); pend--; done();
+        } else if (lo.endsWith('.bvh')) {
+          bvh.push(f); pend--; done();
         } else {
           pend--; done();
         }
@@ -1440,13 +2066,14 @@ function procEntries(entries) {
 }
 
 function procFileList(files) {
-  var stl={}, npzF=[], pklF=[], stlF=[], descFile=null;
+  var stl={}, npzF=[], pklF=[], bvhF=[], stlF=[], descFile=null;
   for(var i=0;i<files.length;i++){
     var lo=files[i].name.toLowerCase();
     if(lo.endsWith('.stl')) stlF.push(files[i]);
     else if(lo.endsWith('.urdf') || lo.endsWith('.xml')) descFile=files[i];
     else if(lo.endsWith('.npz')) npzF.push(files[i]);
     else if(lo.endsWith('.pkl')) pklF.push(files[i]);
+    else if(lo.endsWith('.bvh')) bvhF.push(files[i]);
   }
   if (descFile && stlF.length) {
     var ld=0, descText=null;
@@ -1464,11 +2091,16 @@ function procFileList(files) {
       })(stlF[s]);
     }
     function finalize(){
-      try { loadRobot(descText, stl); } catch(e) { console.error(e); }
-      if(npzF.length) loadNPZ(npzF);
-      if(pklF.length) loadPKL(pklF);
+      var sessionRobot = null;
+      try { sessionRobot = loadRobot(descText, stl); } catch(e) { console.error(e); }
+      var bindId = sessionRobot ? sessionRobot.id : null;
+      var anyMotion = npzF.length || pklF.length || bvhF.length;
+      if(npzF.length) loadNPZ(npzF, bindId);
+      if(pklF.length) loadPKL(pklF, bindId);
+      if(bvhF.length) loadBVH(bvhF);
+      if (sessionRobot && !anyMotion) finalizeDropSession(null, sessionRobot);
     }
-  } else if(npzF.length||pklF.length) {
+  } else if(npzF.length||pklF.length||bvhF.length) {
     loadMotionFiles(files);
   }
 }
@@ -1504,7 +2136,7 @@ function exportCSV(){
 
 // ── Controls ──
 $('bp').onclick=function(){play=!play;uUI();};
-$('sc').addEventListener('input',function(){cFr=parseInt(this.value);play=false;uUI();});
+$('sc').addEventListener('input',function(){cTime=parseInt(this.value)/1000;play=false;uUI();});
 var sbs=document.querySelectorAll('.spb');
 for(var i=0;i<sbs.length;i++) sbs[i].onclick=function(){
   spd=parseFloat(this.getAttribute('data-s'));
@@ -1516,32 +2148,55 @@ $('bt').onclick=function(){sTrl=!sTrl;this.classList.toggle('on2',sTrl);if(!sTrl
 $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
+$('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
+$('bal').onclick=function(){
+  alignMode = alignMode==='auto'?'spread':alignMode==='spread'?'asis':'auto';
+  this.textContent='Align: '+(alignMode==='auto'?'Auto':alignMode==='spread'?'Spread':'As-is');
+  this.classList.toggle('on', alignMode!=='asis');
+};
+$('bre').onclick=function(){
+  var pop=$('brep');
+  if(pop.style.display==='none'){renderReassignPopup();pop.style.display='block';}
+  else pop.style.display='none';
+};
 window.addEventListener('keydown',function(e){
   if(!mots.length)return;
   var m=mots[aIdx]?mots[aIdx].d:null;if(!m)return;
   if(e.code==='Space'){e.preventDefault();play=!play;uUI();}
-  else if(e.code==='ArrowRight'){e.preventDefault();cFr=Math.min(cFr+1,m.nF-1);play=false;uUI();}
-  else if(e.code==='ArrowLeft'){e.preventDefault();cFr=Math.max(cFr-1,0);play=false;uUI();}
-  else if(e.code==='BracketRight'){e.preventDefault();aIdx=(aIdx+1)%mots.length;cFr=0;tPts=[];rSb();uUI();}
-  else if(e.code==='BracketLeft'){e.preventDefault();aIdx=(aIdx-1+mots.length)%mots.length;cFr=0;tPts=[];rSb();uUI();}
+  else if(e.code==='ArrowRight'){e.preventDefault();cTime=Math.min(cTime+1/m.fps,longestPlayingDur());play=false;uUI();}
+  else if(e.code==='ArrowLeft'){e.preventDefault();cTime=Math.max(cTime-1/m.fps,0);play=false;uUI();}
+  else if(e.code==='BracketRight'){e.preventDefault();switchPrimary((aIdx+1)%mots.length);}
+  else if(e.code==='BracketLeft'){e.preventDefault();switchPrimary((aIdx-1+mots.length)%mots.length);}
   else if(e.code==='KeyY'){e.preventDefault();setLabel('keep');}
   else if(e.code==='KeyN'){e.preventDefault();setLabel('abort');}
 });
 
 // ── Render Loop ──
-var lt=0,acc=0;
+var lt=0;
 function tick(ts){
   requestAnimationFrame(tick);
   var dt=lt?(ts-lt)/1000:0;lt=ts;
   var mot=mots[aIdx]?mots[aIdx].d:null;
   if(mot&&meshLoaded){
+    var longest=longestPlayingDur();
     if(play){
-      acc+=dt*spd;var fd=1/mot.fps;
-      while(acc>=fd){acc-=fd;cFr=(cFr+1)%mot.nF;}
-      $('sc').value=cFr;$('t0').textContent=fmt(cFr,mot.fps);
-      $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmt(cFr,mot.fps)+'<span class="s">|</span>f'+cFr+'/'+(mot.nF-1);
+      cTime += dt*spd;
+      if(longest>0 && cTime>=longest) cTime -= Math.floor(cTime/longest)*longest;
     }
-    updatePose(mot,cFr);
+    cFr = motFrameAt(mot, cTime);
+    if(play){
+      var sliderMax = Math.max(1, Math.round(longest*1000));
+      $('sc').max = sliderMax;
+      $('sc').value = Math.min(sliderMax, Math.round(cTime*1000));
+      $('t0').textContent = fmtS(cTime);
+      $('t1').textContent = fmtS(longest);
+      $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmtS(cTime)+'<span class="s">|</span>f'+cFr+'/'+(mot.nF-1)+(extras.length?'<span class="s">|</span>+'+extras.length:'');
+    }
+    updatePoseLG(LG, mot, cFr, computeAlignOffset(mot, 0));
+    for(var x=0;x<extras.length;x++){
+      var em = mots[extras[x].mIdx] && mots[extras[x].mIdx].d;
+      if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime), computeAlignOffset(em, x+1));
+    }
     if(fCam && LG.length){cTgt.lerp(LG[0].position,.05);uCam();}
     dl.position.set(cTgt.x+3,cTgt.y+5,cTgt.z+4);
     dl.target.position.copy(cTgt);dl.target.updateMatrixWorld();
