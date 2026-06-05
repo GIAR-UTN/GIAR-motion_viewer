@@ -113,16 +113,9 @@
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
   .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;display:flex;justify-content:space-between;align-items:center}
-  .sb-acts{display:flex;gap:5px}
   .sb-solo{font-family:'IBM Plex Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--t2);padding:2px 8px;cursor:pointer;letter-spacing:1px}
   .sb-solo:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
   .sb-solo:disabled{opacity:.35;cursor:default}
-  .sb-rea-pop{margin:0 12px 8px;background:rgba(8,8,15,.7);border:1px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto}
-  .sb-rea-item{display:flex;align-items:center;padding:6px 10px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t1);gap:8px}
-  .sb-rea-item:hover:not(.disabled){background:var(--hover)}
-  .sb-rea-item.disabled{color:var(--t3);cursor:not-allowed;opacity:.5}
-  .sb-rea-item.current{background:var(--active);color:var(--cyan)}
-  .sb-rea-meta{margin-left:auto;color:var(--t3);font-size:9px}
   .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
   .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
   .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
@@ -212,15 +205,8 @@
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
-      <div class="sb-l" id="sbl">
-        <span id="sblt">Motions</span>
-        <span class="sb-acts">
-          <button class="sb-solo" id="bre" title="Reassign all playing motions to a different robot">Reassign ▾</button>
-          <button class="sb-solo" id="bso" disabled title="Remove all extras, keep only the primary motion playing">Solo</button>
-        </span>
-      </div>
+      <div class="sb-l" id="sbl"><span id="sblt">Motions</span><button class="sb-solo" id="bso" disabled title="Remove all extras, keep only the primary motion playing">Solo</button></div>
       <div class="sb-tabs" id="st"></div>
-      <div class="sb-rea-pop" id="brep" style="display:none"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
         <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl,.bvh">+ Add motion</label>
@@ -1339,90 +1325,6 @@ function longestPlayingDur() {
   return dur;
 }
 
-// Returns the array of motion indices currently in the playing set
-// (primary first, then extras in their order).
-function playingMotionIdxs() {
-  var arr = [];
-  if (mots[aIdx] && mots[aIdx].d) arr.push(aIdx);
-  for (var i = 0; i < extras.length; i++) arr.push(extras[i].mIdx);
-  return arr;
-}
-// A robot is "compatible" with a motion if rendering the motion against
-// the robot's skeleton would line up. For rigid motions we check body
-// count (which is also the joint-DoF count for PKL motions after FK).
-// BVH motions are tied to the specific skeleton declared in their file
-// and can only render against that exact robot.
-function robotCompatibleWith(r, mIdx) {
-  var m = mots[mIdx]; if (!m) return false;
-  var mr = robotById(m.robotId);
-  if (mr && mr.kind === 'bvh') return r.id === mr.id;
-  if (r.kind !== 'rigid') return false;
-  var nB = m.d ? m.d.nB : (m.raw ? null : null);
-  if (nB == null) return true;  // PKL pre-FK: optimistically allow
-  return r.nB === nB;
-}
-
-// Rebuild the primary LG using the given robot's template. Used by both
-// switchPrimary (when the target motion's robot differs) and reassignTo.
-function rebuildPrimaryFromRobot(r) {
-  disposeGroupArray(LG);
-  LG = []; bodyNames = [];
-  var built;
-  if (r.kind === 'rigid') {
-    built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
-    fkInfo = buildFKChain(r.template.urdf, r.template.bodies);
-  } else {
-    built = buildBVHLG(r.template.bvh, r.template.scale);
-    fkInfo = null;
-  }
-  for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
-  LG = built.LG; bodyNames = built.names; nBodies = built.LG.length;
-  meshLoaded = true;
-  currentRobotId = r.id;
-  if (r.kind === 'rigid') ensureFK();
-  $('hi').textContent = r.name + ' | ' + nBodies + ' bodies';
-}
-
-// Batch-reassign: change the robotId of every currently-playing motion to
-// the given robot, rebuild the primary LG and all extras from the new
-// template. Caller is responsible for compat checking.
-function reassignTo(robotId) {
-  var newR = robotById(robotId); if (!newR) return;
-  if (mots[aIdx]) {
-    mots[aIdx].robotId = robotId;
-    rebuildPrimaryFromRobot(newR);
-  }
-  var extraIdxs = extras.map(function(e){return e.mIdx;});
-  clearExtras();
-  for (var i = 0; i < extraIdxs.length; i++) {
-    mots[extraIdxs[i]].robotId = robotId;
-    addExtra(extraIdxs[i]);
-  }
-  rSb(); uUI();
-}
-
-// Render the inline reassign popup with one row per known robot. Rows are
-// disabled when at least one playing motion can't render on that robot.
-function renderReassignPopup() {
-  var pop = $('brep');
-  pop.innerHTML = '';
-  var playing = playingMotionIdxs();
-  if (!robots.length) { pop.style.display = 'none'; return; }
-  robots.forEach(function(r) {
-    var compat = playing.length ? playing.every(function(mi){return robotCompatibleWith(r, mi);}) : true;
-    var isCurrent = currentRobotId === r.id;
-    var item = document.createElement('div');
-    item.className = 'sb-rea-item' + (compat ? '' : ' disabled') + (isCurrent ? ' current' : '');
-    item.innerHTML = '<span class="sb-rchip" style="background:'+r.color+'"></span>' +
-                     '<span>'+r.name+(isCurrent?' ★':'')+'</span>' +
-                     '<span class="sb-rea-meta">'+r.kind+' · '+r.nB+'</span>';
-    if (compat && !isCurrent) {
-      item.onclick = function(){ reassignTo(r.id); pop.style.display = 'none'; };
-    }
-    pop.appendChild(item);
-  });
-}
-
 // Switch the primary motion. Preserves the extras set and the cTime clock
 // so other instances keep playing in sync. If the new motion lives on a
 // different robot than the one currently in scene, the primary LG (and FK
@@ -1431,10 +1333,28 @@ function renderReassignPopup() {
 function switchPrimary(mIdx) {
   if (aIdx === mIdx || !mots[mIdx]) return;
   removeExtra(mIdx);
-  var r = robotById(mots[mIdx].robotId);
-  if (r && currentRobotId !== r.id) rebuildPrimaryFromRobot(r);
+  var mot = mots[mIdx];
+  var r = robotById(mot.robotId);
+  if (r && currentRobotId !== r.id) {
+    disposeGroupArray(LG);
+    LG = []; bodyNames = [];
+    var built;
+    if (r.kind === 'rigid') {
+      built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
+      fkInfo = buildFKChain(r.template.urdf, r.template.bodies);
+    } else {
+      built = buildBVHLG(r.template.bvh, r.template.scale);
+      fkInfo = null;
+    }
+    for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
+    LG = built.LG; bodyNames = built.names; nBodies = built.LG.length;
+    meshLoaded = true;
+    currentRobotId = r.id;
+    if (r.kind === 'rigid') ensureFK();
+    $('hi').textContent = r.name + ' | ' + nBodies + ' bodies';
+  }
   aIdx = mIdx;
-  cFr = 0;
+  cFr = 0;   // will be recomputed from cTime on next tick
   tPts = [];
   rSb(); uUI();
 }
@@ -1851,11 +1771,6 @@ function rSb(){
   $('sblt').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
   $('bso').disabled = extras.length === 0;
   $('bso').textContent = extras.length ? 'Solo (\u2212' + extras.length + ')' : 'Solo';
-  // Reassign is only useful when there is more than one robot to choose from
-  // and at least one motion currently playing.
-  var hasPrimary = mots[aIdx] && mots[aIdx].d;
-  $('bre').disabled = robots.length < 2 || !hasPrimary;
-  if ($('bre').disabled) $('brep').style.display = 'none';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -2145,11 +2060,6 @@ $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
 $('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
-$('bre').onclick=function(){
-  var pop=$('brep');
-  if(pop.style.display==='none'){renderReassignPopup();pop.style.display='block';}
-  else pop.style.display='none';
-};
 $('bal').onclick=function(){
   alignMode = alignMode==='auto'?'spread':alignMode==='spread'?'asis':'auto';
   this.textContent='Align: '+(alignMode==='auto'?'Auto':alignMode==='spread'?'Spread':'As-is');
