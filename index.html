@@ -1353,16 +1353,23 @@ function loadBVHRobot(bvh, scale) {
     sampleLen = Math.sqrt(jo[0]*jo[0] + jo[1]*jo[1] + jo[2]*jo[2]) * scale;
   }
   var jointR = Math.max(0.012, Math.min(0.035, sampleLen * 0.18));
-  var boneR  = Math.max(0.008, jointR * 0.55);
+  // Bones nearly as thick as the joint balls so the connection reads as one
+  // smooth chain — the previous 0.55 ratio left a visible neck between ball
+  // and bone. Cylinder is also extended by jointR past each end so it always
+  // overlaps inside both balls (kills perception of a gap on close inspection).
+  var boneR  = Math.max(0.010, jointR * 0.80);
   var sphereGeo = new THREE.SphereGeometry(jointR, 14, 10);
+  var tipGeo    = new THREE.SphereGeometry(jointR * 0.6, 10, 8);
 
   function addBone(grp, offVec, color) {
     var vx = offVec[0] * scale, vy = offVec[1] * scale, vz = offVec[2] * scale;
     var len = Math.sqrt(vx*vx + vy*vy + vz*vz);
     if (len < 1e-4) return;
-    var geo = new THREE.CylinderGeometry(boneR, boneR, len, 10);
+    var fullLen = len + 2 * jointR;
+    var geo = new THREE.CylinderGeometry(boneR, boneR, fullLen, 10);
     var mat = new THREE.MeshStandardMaterial({color: color, roughness: 0.55, metalness: 0.2});
     var mesh = new THREE.Mesh(geo, mat);
+    // Center the (extended) cylinder so it spans -jointR..len+jointR along the bone axis.
     mesh.position.set(0, len/2, 0);
     mesh.castShadow = true; mesh.receiveShadow = true;
     var pivot = new THREE.Group();
@@ -1371,6 +1378,18 @@ function loadBVHRobot(bvh, scale) {
     q.setFromUnitVectors(new THREE.Vector3(0,1,0), new THREE.Vector3(vx/len, vy/len, vz/len));
     pivot.quaternion.copy(q);
     grp.add(pivot);
+  }
+
+  function addTipMarker(grp, offVec) {
+    // Small ball at the end-site tip so the chain doesn't visually "open" at
+    // hands/feet/head terminals where there is no child joint to mark.
+    var sx = offVec[0] * scale, sy = offVec[1] * scale, sz = offVec[2] * scale;
+    if (Math.sqrt(sx*sx + sy*sy + sz*sz) < 1e-4) return;
+    var tipMat = new THREE.MeshStandardMaterial({color: 0x888899, roughness: 0.45, metalness: 0.25});
+    var tip = new THREE.Mesh(tipGeo, tipMat);
+    tip.position.set(sx, sy, sz);
+    tip.castShadow = true; tip.receiveShadow = true;
+    grp.add(tip);
   }
 
   // Group meshes (sphere material) per joint, recolored along the body chain.
@@ -1387,7 +1406,10 @@ function loadBVHRobot(bvh, scale) {
     for (var c = 0; c < nBodies; c++) {
       if (bvh.joints[c].parent === i) addBone(grp, bvh.joints[c].offset, 0xcc8844);
     }
-    if (joint.endSite) addBone(grp, joint.endSite, 0x888899);
+    if (joint.endSite) {
+      addBone(grp, joint.endSite, 0x888899);
+      addTipMarker(grp, joint.endSite);
+    }
     scene.add(grp);
     LG.push(grp);
   }
