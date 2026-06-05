@@ -239,6 +239,7 @@
     <button class="cb" id="bp">⏸</button>
     <div class="tl"><span class="tm" id="t0">0:00.0</span><input type="range" id="sc" min="0" max="100" value="0"><span class="tm" id="t1">0:00.0</span></div>
     <div class="sg"><span class="sl">Spd</span><button class="spb" data-s="0.25">.25</button><button class="spb" data-s="0.5">.5</button><button class="spb act" data-s="1">1x</button><button class="spb" data-s="2">2x</button></div>
+    <button class="tb on" id="bal" title="Cycle align mode: Auto → Spread → As-is">Align: Auto</button>
     <button class="tb on" id="bf">Follow</button>
     <button class="tb" id="bt">Trail</button>
     <button class="tb" id="bk">&#10003; Keep</button>
@@ -1556,15 +1557,17 @@ function ensureFK(){
   if(any){rSb();uUI();}
 }
 
-function updatePoseLG(lgArr, mot, fr) {
+function updatePoseLG(lgArr, mot, fr, off) {
   var nb = mot.nB, pf = mot.pF, qf = mot.qF;
   var count = Math.min(lgArr.length, nb);
   var yUp = !!mot.yUp;
+  var ox = off ? off.x : 0, oy = off ? off.y : 0, oz = off ? off.z : 0;
   for (var i = 0; i < count; i++) {
     var g = lgArr[i];
     var pb = (fr * nb + i) * 3;
-    if (yUp) g.position.set(pf[pb], pf[pb+1], pf[pb+2]);
-    else g.position.set(pf[pb], pf[pb+2], -pf[pb+1]);
+    var x = pf[pb] + ox, y = pf[pb+1] + oy, z = pf[pb+2] + oz;
+    if (yUp) g.position.set(x, y, z);
+    else g.position.set(x, z, -y);
     if (qf) {
       var qb = (fr * nb + i) * 4;
       _tq.set(qf[qb+1], qf[qb+2], qf[qb+3], qf[qb]);
@@ -1573,7 +1576,7 @@ function updatePoseLG(lgArr, mot, fr) {
     }
   }
 }
-function updatePose(mot, fr) { updatePoseLG(LG, mot, fr); }
+function updatePose(mot, fr) { updatePoseLG(LG, mot, fr, computeAlignOffset(mot, 0)); }
 
 // Pure builder for a BVH skeleton instance. Returns {LG, names} without
 // touching globals — caller adds to scene + syncs to LG/bodyNames if it's
@@ -1745,7 +1748,24 @@ cv.addEventListener('touchend',function(e){if(e.touches.length<2){drg=0;tch0=nul
 window.addEventListener('resize',function(){W=vp.clientWidth;H=vp.clientHeight;cam.aspect=W/H;cam.updateProjectionMatrix();rn.setSize(W,H);});
 
 // ── State ──
-var mots=[],aIdx=0,cFr=0,cTime=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all';
+var mots=[],aIdx=0,cFr=0,cTime=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all',alignMode='auto';
+var SPREAD_STEP = 1.5;
+// Computes a world translation to apply to all bodies of an instance, in
+// the motion's own coord system (XY for Z-up, XZ for Y-up) so the existing
+// yUp/Zup swap in updatePoseLG handles them with no extra math.
+//   'asis'   — no offset (raw data positions)
+//   'auto'   — subtract motion's frame-0 horizontal root pos so first
+//              frame lands at world origin; vertical axis preserved so
+//              characters keep their standing height
+//   'spread' — push instance i along world +X by SPREAD_STEP * i so
+//              multiple robots line up side-by-side
+function computeAlignOffset(mot, instanceIdx) {
+  if (!mot || !mot.pF || mot.nF < 1) return null;
+  if (alignMode === 'asis') return null;
+  if (alignMode === 'spread') return { x: SPREAD_STEP * instanceIdx, y: 0, z: 0 };
+  var rx = mot.pF[0], ry = mot.pF[1], rz = mot.pF[2];
+  return mot.yUp ? { x: -rx, y: 0, z: -rz } : { x: -rx, y: -ry, z: 0 };
+}
 function fmtS(sec){var s=isFinite(sec)?sec:0,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
 function motFrameAt(mot, t) { return Math.min(Math.max(0, Math.floor(t * mot.fps)), mot.nF - 1); }
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
@@ -2129,6 +2149,11 @@ $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
 $('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
+$('bal').onclick=function(){
+  alignMode = alignMode==='auto'?'spread':alignMode==='spread'?'asis':'auto';
+  this.textContent='Align: '+(alignMode==='auto'?'Auto':alignMode==='spread'?'Spread':'As-is');
+  this.classList.toggle('on', alignMode!=='asis');
+};
 $('bre').onclick=function(){
   var pop=$('brep');
   if(pop.style.display==='none'){renderReassignPopup();pop.style.display='block';}
@@ -2167,10 +2192,10 @@ function tick(ts){
       $('t1').textContent = fmtS(longest);
       $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmtS(cTime)+'<span class="s">|</span>f'+cFr+'/'+(mot.nF-1)+(extras.length?'<span class="s">|</span>+'+extras.length:'');
     }
-    updatePose(mot,cFr);
+    updatePoseLG(LG, mot, cFr, computeAlignOffset(mot, 0));
     for(var x=0;x<extras.length;x++){
       var em = mots[extras[x].mIdx] && mots[extras[x].mIdx].d;
-      if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime));
+      if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime), computeAlignOffset(em, x+1));
     }
     if(fCam && LG.length){cTgt.lerp(LG[0].position,.05);uCam();}
     dl.position.set(cTgt.x+3,cTgt.y+5,cTgt.z+4);
