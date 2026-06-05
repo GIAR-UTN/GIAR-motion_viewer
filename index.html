@@ -112,7 +112,18 @@
   .hdr-i{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t2)}
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
-  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px}
+  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;display:flex;justify-content:space-between;align-items:center}
+  .sb-acts{display:flex;gap:5px}
+  .sb-solo{font-family:'IBM Plex Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--t2);padding:2px 8px;cursor:pointer;letter-spacing:1px}
+  .sb-solo:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+  .sb-solo:disabled{opacity:.35;cursor:default}
+  .sb-rea-pop{margin:0 12px 8px;background:rgba(8,8,15,.7);border:1px solid var(--border);border-radius:4px;max-height:200px;overflow-y:auto}
+  .sb-rea-item{display:flex;align-items:center;padding:6px 10px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t1);gap:8px}
+  .sb-rea-item:hover:not(.disabled){background:var(--hover)}
+  .sb-rea-item.disabled{color:var(--t3);cursor:not-allowed;opacity:.5}
+  .sb-rea-item.current{background:var(--active);color:var(--cyan)}
+  .sb-rea-meta{margin-left:auto;color:var(--t3);font-size:9px}
+  .sb-rchip{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;border:1px solid rgba(255,255,255,.12)}
   .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
   .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
   .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
@@ -201,8 +212,15 @@
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
-      <div class="sb-l" id="sbl">Motions</div>
+      <div class="sb-l" id="sbl">
+        <span id="sblt">Motions</span>
+        <span class="sb-acts">
+          <button class="sb-solo" id="bre" disabled title="Reassign all currently-playing motions to another robot">Reassign ▾</button>
+          <button class="sb-solo" id="bso" disabled title="Remove all extras, keep only the primary motion">Solo</button>
+        </span>
+      </div>
       <div class="sb-tabs" id="st"></div>
+      <div class="sb-rea-pop" id="brep" style="display:none"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
         <label class="sb-b"><input type="file" id="fi" multiple accept=".npz,.pkl,.bvh">+ Add motion</label>
@@ -1205,10 +1223,26 @@ var fkInfo = null;
 // Multi-motion playback: ctrl/cmd-click toggles a motion in the playing set.
 // Each "extra" is its own scene-attached set of body Groups bound to a
 // specific mIdx so we can render N motions at the same wall-clock time.
-// robotTemplate keeps the data needed to build a fresh rigid instance for
-// extras (BVH motions carry their own .bvh on mots[i]).
-var extras = [];           // [{mIdx, LG, names, nB, yUp}, ...]
-var robotTemplate = null;  // {kind:'rigid', urdf, bodies, stlMap} or null
+var extras = [];
+
+// Robot library. loadRobot / each BVH file only REGISTER an entry here;
+// they don't touch the running scene. A separate activateRobot() builds
+// LG from a robot's template — that's the single place that swaps out the
+// rendered skeleton. Drop-session orphan motions (NPZ/PKL with no URDF in
+// the same drop) bind to the most-recently-loaded rigid robot.
+var robots = [];           // [{id, name, kind:'rigid'|'bvh', color, template, nB}]
+var nextRobotId = 1;
+var currentRobotId = null; // robot the in-scene primary LG was built from
+var lastRigidRobotId = null;
+var ROBOT_COLORS = ['#2d9aaa','#cc8844','#aa2d6a','#6acc44','#9944cc','#dd9933','#3366cc','#dd4488'];
+function makeRobot(kind, template, name, nB) {
+  var r = { id: 'r' + (nextRobotId++), name: name, kind: kind, color: ROBOT_COLORS[robots.length % ROBOT_COLORS.length], template: template, nB: nB };
+  robots.push(r);
+  if (kind === 'rigid') lastRigidRobotId = r.id;
+  return r;
+}
+function robotById(id) { for (var i = 0; i < robots.length; i++) if (robots[i].id === id) return robots[i]; return null; }
+function currentRobot() { return robotById(currentRobotId); }
 
 // Trail
 var trl=new THREE.Line(
@@ -1237,9 +1271,7 @@ function clearRobot() {
   nBodies = 0;
   meshLoaded = false;
   fkInfo = null;
-  robotTemplate = null;
-  // Extra-motion instances become invalid the moment the primary robot/skeleton
-  // changes (their meshes were built against the old template).
+  currentRobotId = null;
   for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
   extras = [];
   for (var i = 0; i < mots.length; i++) {
@@ -1262,21 +1294,23 @@ function removeExtra(mIdx) {
   disposeGroupArray(extras[k].LG);
   extras.splice(k, 1);
 }
-// Build & attach a fresh instance bound to mIdx. Returns true on success.
+// Build & attach a fresh instance bound to mIdx, rendered against its own
+// robot's template (not the primary's). Returns true on success.
 function addExtra(mIdx) {
   if (!mots[mIdx] || !mots[mIdx].d) return false;
   if (extraIdx(mIdx) >= 0) return false;
-  var mot = mots[mIdx];
+  var r = robotById(mots[mIdx].robotId);
+  if (!r) return false;
   var built = null, yUp = false;
-  if (mot.bvh) {
-    built = buildBVHLG(mot.bvh, mot.scale || 1);
+  if (r.kind === 'bvh') {
+    built = buildBVHLG(r.template.bvh, r.template.scale);
     yUp = true;
-  } else if (robotTemplate && robotTemplate.kind === 'rigid') {
-    built = buildRigidLG(robotTemplate.bodies, robotTemplate.stlMap, false);
+  } else {
+    built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
   }
   if (!built) return false;
   for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
-  extras.push({ mIdx: mIdx, LG: built.LG, names: built.names, nB: built.LG.length, yUp: yUp });
+  extras.push({ mIdx: mIdx, LG: built.LG, names: built.names, nB: built.LG.length, yUp: yUp, robotId: r.id });
   return true;
 }
 function isPlaying(mIdx) {
@@ -1363,37 +1397,151 @@ function buildRigidLG(bodies, stlMap, verbose) {
   return { LG: LG2, names: names2, loaded: loaded, missing: missing };
 }
 
+// REGISTERS a rigid robot in the library. Does NOT touch the running scene.
+// Returns the new robot record so callers know what robotId to bind motions to.
 function loadRobot(descText, stlMap) {
-  clearRobot();
-  clearExtras();
   var urdf = isMjcfText(descText) ? parseMJCF(descText) : parseURDF(descText);
   var bodies = computeBodyOrder(urdf);
+  var name = urdf.robotName || 'robot';
+  console.log('Robot register: ' + name + ', bodies: ' + bodies.length + ', STL keys: ' + Object.keys(stlMap).length);
+  var r = makeRobot('rigid', { urdf: urdf, bodies: bodies, stlMap: stlMap }, name, bodies.length);
+  $('ms').textContent = name + ' added to library (' + bodies.length + ' bodies)';
+  $('ms').className = 'ms ok';
+  return r;
+}
 
-  var stlKeys = Object.keys(stlMap);
-  console.log('Robot: ' + urdf.robotName + ', bodies: ' + bodies.length + ', STL files available: ' + stlKeys.length);
-  console.log('STL map keys:', stlKeys.sort().join(', '));
-  bodies.forEach(function(b, i) {
-    var fm = b.fixedMeshes.map(function(f){return f.file;});
-    console.log('  [' + i + '] ' + b.name + ' meshes=' + JSON.stringify(b.meshes) + (fm.length ? ' fixed=' + JSON.stringify(fm) : ''));
-  });
-
-  var built = buildRigidLG(bodies, stlMap, true);
+// BUILDS LG from a robot's template and makes it the current in-scene
+// primary. Tears down whatever LG was previously rendered. Also tears down
+// extras since their meshes were bound to the OLD scene's robot life-cycle.
+function activateRobot(r) {
+  if (!r) return;
+  disposeGroupArray(LG);
+  LG = []; bodyNames = []; nBodies = 0;
+  for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
+  extras = [];
+  var built;
+  if (r.kind === 'rigid') {
+    built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
+    fkInfo = buildFKChain(r.template.urdf, r.template.bodies);
+  } else {
+    built = buildBVHLG(r.template.bvh, r.template.scale);
+    fkInfo = null;
+  }
   for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
-  LG = built.LG;
-  bodyNames = built.names;
-  nBodies = bodies.length;
+  LG = built.LG; bodyNames = built.names; nBodies = built.LG.length;
   meshLoaded = true;
-  robotTemplate = { kind: 'rigid', urdf: urdf, bodies: bodies, stlMap: stlMap };
+  currentRobotId = r.id;
+  if (r.kind === 'rigid') ensureFK();
+  $('hi').textContent = r.name + ' | ' + nBodies + (r.kind === 'bvh' ? ' joints' : ' bodies');
+}
 
-  fkInfo = buildFKChain(urdf, bodies);
-  var statusText = urdf.robotName + ' loaded (' + built.loaded + ' meshes, ' + nBodies + ' bodies)';
-  if (built.missing) statusText += ' — ' + built.missing + ' missing';
-  $('ms').textContent = statusText;
-  $('ms').className = built.missing ? 'ms warn' : 'ms ok';
-  console.log(statusText);
-  $('hi').textContent = urdf.robotName + ' | ' + nBodies + ' bodies';
-  ensureFK();
-  return nBodies;
+// Switch the primary motion. If the new motion lives on a different robot
+// than the one currently rendered, rebuild LG from that robot's template.
+// Extras are dropped on cross-robot switch (their old robot is gone too).
+// On same-robot switch (e.g. clicking a sibling NPZ), only aIdx changes —
+// LG, extras, and the clock are preserved.
+function switchPrimary(mIdx) {
+  if (!mots[mIdx]) return;
+  if (aIdx === mIdx && meshLoaded) return;
+  var r = robotById(mots[mIdx].robotId);
+  if (!r) return;
+  removeExtra(mIdx);
+  if (currentRobotId !== r.id) activateRobot(r);
+  aIdx = mIdx;
+  cFr = 0;
+  tPts = [];
+  rSb(); uUI();
+}
+
+// Returns the array of motion indices currently in the playing set
+// (primary first, then extras in order).
+function playingMotionIdxs() {
+  var arr = [];
+  if (mots[aIdx] && mots[aIdx].d) arr.push(aIdx);
+  for (var i = 0; i < extras.length; i++) arr.push(extras[i].mIdx);
+  return arr;
+}
+function anyPlayingIsBVH() {
+  var idxs = playingMotionIdxs();
+  for (var i = 0; i < idxs.length; i++) {
+    var rb = robotById(mots[idxs[i]].robotId);
+    if (rb && rb.kind === 'bvh') return true;
+  }
+  return false;
+}
+function rigidRobotCompatibleWith(r, mIdx) {
+  if (r.kind !== 'rigid') return false;
+  var m = mots[mIdx]; if (!m) return false;
+  var nB = m.d ? m.d.nB : null;
+  if (nB == null) return true;     // PKL pre-FK: optimistically allow
+  return r.nB === nB;
+}
+
+function reassignTo(robotId) {
+  var newR = robotById(robotId); if (!newR || newR.kind !== 'rigid') return;
+  var playing = playingMotionIdxs();
+  if (!playing.length) return;
+  // Change robotId for every rigid playing motion.
+  for (var i = 0; i < playing.length; i++) {
+    var rb = robotById(mots[playing[i]].robotId);
+    if (rb && rb.kind === 'rigid') mots[playing[i]].robotId = robotId;
+  }
+  // Rebuild the primary scene and the extras using the new template.
+  if (mots[aIdx]) {
+    var oldExtras = extras.map(function(e){return e.mIdx;});
+    activateRobot(newR);
+    for (var j = 0; j < oldExtras.length; j++) {
+      // Only re-add rigid extras (BVH extras stay on their own skeleton,
+      // but activateRobot already disposed them — re-add them too).
+      addExtra(oldExtras[j]);
+    }
+  }
+  rSb(); uUI();
+}
+
+// Render the inline reassign popup. RIGID-only — BVH skeletons are file-
+// bound and don't belong in this menu. Rows are disabled when at least one
+// playing motion can't render on that robot, or when any playing motion is
+// BVH (BVH motions can't be reassigned at all).
+function renderReassignPopup() {
+  var pop = $('brep');
+  pop.innerHTML = '';
+  if (anyPlayingIsBVH()) { pop.style.display = 'none'; return; }
+  var playing = playingMotionIdxs();
+  var rigid = robots.filter(function(r){return r.kind === 'rigid';});
+  if (!rigid.length) { pop.style.display = 'none'; return; }
+  rigid.forEach(function(r) {
+    var compat = playing.length ? playing.every(function(mi){return rigidRobotCompatibleWith(r, mi);}) : true;
+    var isCurrent = currentRobotId === r.id;
+    var item = document.createElement('div');
+    item.className = 'sb-rea-item' + (compat ? '' : ' disabled') + (isCurrent ? ' current' : '');
+    item.innerHTML = '<span class="sb-rchip" style="background:'+r.color+'"></span>' +
+                     '<span>'+r.name+(isCurrent?' ★':'')+'</span>' +
+                     '<span class="sb-rea-meta">'+r.nB+' bodies</span>';
+    if (compat && !isCurrent) {
+      item.onclick = function(){ reassignTo(r.id); pop.style.display = 'none'; };
+    }
+    pop.appendChild(item);
+  });
+}
+
+// End of a drop session. Two cases:
+//  (a) New motions arrived: the FIRST new motion becomes primary. If no
+//      scene was running, that means we adopt it; if a scene was already
+//      running, the same call (switchPrimary) does the cross-robot switch
+//      so the user immediately sees what they just dropped.
+//  (b) Only a robot arrived, no motions: if nothing is rendered yet, show
+//      the robot at default pose so the drop wasn't silent. Otherwise the
+//      robot just sits in the library waiting to be assigned.
+function finalizeDropSession(firstNewMotionIdx, sessionRobot) {
+  if (firstNewMotionIdx != null && mots[firstNewMotionIdx]) {
+    switchPrimary(firstNewMotionIdx);
+    return;
+  }
+  if (sessionRobot && !meshLoaded) {
+    activateRobot(sessionRobot);
+    rSb(); uUI();
+  }
 }
 
 function ensureFK(){
@@ -1491,32 +1639,15 @@ function buildBVHLG(bvh, scale) {
   return { LG: LG2, names: names2 };
 }
 
-function loadBVHRobot(bvh, scale) {
-  clearRobot();
-  clearExtras();
-  var built = buildBVHLG(bvh, scale);
-  for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
-  LG = built.LG;
-  bodyNames = built.names;
-  nBodies = bvh.joints.length;
-
-  meshLoaded = true;
-  $('hi').textContent = 'BVH skeleton | ' + nBodies + ' joints';
-  $('ms').textContent = 'Skeleton loaded (' + nBodies + ' joints, scale=' + scale + ')';
-  $('ms').className = 'ms ok';
-}
-
-// Single-file robot+motion: first BVH builds the skeleton, every BVH gets
-// registered as a motion. Subsequent BVHs reuse the existing skeleton if
-// their joint count matches; otherwise a fresh skeleton is built.
+// Each BVH file carries its own skeleton, so it registers as its own robot
+// in the library. No scene change here — finalize-session decides whether
+// to adopt the new motion as primary and call activateRobot.
 function loadBVHFromText(text, baseName) {
   var bvh = parseBVH(text);
   var motion = buildBVHMotion(bvh);
-  if (!meshLoaded || nBodies !== bvh.joints.length) loadBVHRobot(bvh, motion.scale);
-  // Store skeleton on the motion so it can be re-instantiated into an extra
-  // when ctrl-clicked into the playing set.
-  mots.push({ name: baseName, d: motion, label: null, bvh: bvh, scale: motion.scale });
-  console.log('BVH loaded: ' + baseName + ' — ' + bvh.frames + 'f @ ' + bvh.fps.toFixed(1) + 'fps, ' + bvh.joints.length + ' joints, scale=' + motion.scale);
+  var r = makeRobot('bvh', { bvh: bvh, scale: motion.scale }, baseName, bvh.joints.length);
+  mots.push({ name: baseName, d: motion, label: null, robotId: r.id });
+  console.log('BVH register: ' + baseName + ' — ' + bvh.frames + 'f @ ' + bvh.fps.toFixed(1) + 'fps, ' + bvh.joints.length + ' joints, scale=' + motion.scale + ' (' + r.id + ')');
 }
 
 function loadBVH(files) {
@@ -1530,7 +1661,8 @@ function loadBVH(files) {
   function nx() {
     if (ix >= bf.length) {
       to.style.display = 'none';
-      if (mots.length) { aIdx = fn; cFr = 0; tPts = []; rSb(); uUI(); }
+      var firstNew = fn < mots.length ? fn : null;
+      finalizeDropSession(firstNew, null);
       return;
     }
     var f = bf[ix];
@@ -1655,7 +1787,9 @@ function rSb(){
     var meta=info.nF?(info.nF+'f\u00b7'+info.fps+'fps\u00b7'+(info.nF/info.fps).toFixed(1)+'s'):'\u2026';
     if(!m.d&&m.raw)meta+=' \u00b7 awaiting robot';
     var playDot = extraOn ? '<span class="sb-dot">\u25b6</span>' : '';
-    d.innerHTML='<div class="sb-n" title="'+m.name+'">'+playDot+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
+    var rb = robotById(m.robotId);
+    var rChip = rb ? '<span class="sb-rchip" style="background:'+rb.color+'" title="'+rb.name+'"></span>' : '';
+    d.innerHTML='<div class="sb-n" title="'+m.name+(rb?' \u2014 '+rb.name:'')+'">'+rChip+playDot+m.name+kindTag+badge+'</div><div class="sb-m">'+meta+'</div>';
     d.setAttribute('data-i',i);
     d.onclick=function(ev){
       var ii=parseInt(this.getAttribute('data-i'));
@@ -1669,15 +1803,24 @@ function rSb(){
         rSb();uUI();
         return;
       }
-      // Plain click: switch primary, drop all extras, restart clock.
-      clearExtras();
-      aIdx=ii;cFr=0;cTime=0;tPts=[];rSb();uUI();
+      // Plain click: switch primary. switchPrimary handles cross-robot
+      // rebuilds and same-robot fast paths; extras are preserved on the
+      // same-robot path and dropped only when the robot itself changes.
+      switchPrimary(ii);
     };
     el.appendChild(d);
     if(i===aIdx)actEl=d;
   }
   var headLbl=sbFilter==='all'?'Motions':sbFilter.toUpperCase();
-  $('sbl').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
+  $('sblt').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
+  $('bso').disabled = extras.length === 0;
+  $('bso').textContent = extras.length ? 'Solo (\u2212' + extras.length + ')' : 'Solo';
+  // Reassign is rigid-only, so disable when any playing motion is BVH OR
+  // there's fewer than two rigid robots in the library.
+  var hasPrimary = mots[aIdx] && mots[aIdx].d;
+  var rigidCount = robots.filter(function(r){return r.kind==='rigid';}).length;
+  $('bre').disabled = !hasPrimary || rigidCount < 2 || anyPlayingIsBVH();
+  if ($('bre').disabled) $('brep').style.display = 'none';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -1704,18 +1847,28 @@ function uUI(){
 }
 
 // ── NPZ loading ──
-function loadNPZ(files){
+function loadNPZ(files, sessionRobotId){
   var nf=[];
   for(var i=0;i<files.length;i++)
     if(files[i].name.toLowerCase().endsWith('.npz'))nf.push(files[i]);
   if(!nf.length)return;
   nf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  // Orphan motions (drop without a URDF in this session) attach to the most
+  // recently loaded RIGID robot — never to a BVH (BVH skeleton is file-bound).
+  var bindRobotId = sessionRobotId || lastRigidRobotId;
+  if (!bindRobotId) {
+    console.warn('NPZ dropped without any rigid robot in the library — drop URDF/MJCF first. Skipping ' + nf.length + ' file(s).');
+    $('ms').textContent='⚠ No URDF/MJCF loaded — drop a robot first';
+    $('ms').className='ms warn';
+    return;
+  }
   var to=$('to');to.style.display='block';
   var fn=mots.length,ix=0;
   function nx(){
     if(ix>=nf.length){
       to.style.display='none';
-      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();uUI();}
+      var firstNew = fn < mots.length ? fn : null;
+      finalizeDropSession(firstNew, null);
       return;
     }
     var f=nf[ix];
@@ -1727,7 +1880,7 @@ function loadNPZ(files){
         var a=await parseNPZ(ev.target.result);
         if(a.body_pos_w){
           var d=extractMotion(a);
-          mots.push({name:f.name.replace('.npz',''),d:d,label:null});
+          mots.push({name:f.name.replace('.npz',''),d:d,label:null,robotId:bindRobotId});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -1739,18 +1892,27 @@ function loadNPZ(files){
 }
 
 // ── PKL loading (root + DoF → FK to world body poses) ──
-function loadPKL(files){
+function loadPKL(files, sessionRobotId){
   var pf=[];
   for(var i=0;i<files.length;i++)
     if(files[i].name.toLowerCase().endsWith('.pkl'))pf.push(files[i]);
   if(!pf.length)return;
   pf.sort(function(a,b){return a.name.localeCompare(b.name);});
+  var bindRobotId = sessionRobotId || lastRigidRobotId;
+  if (!bindRobotId) {
+    console.warn('PKL dropped without any rigid robot in the library — drop URDF/MJCF first. Skipping ' + pf.length + ' file(s).');
+    $('ms').textContent='⚠ No URDF/MJCF loaded — drop a robot first';
+    $('ms').className='ms warn';
+    return;
+  }
   var to=$('to');to.style.display='block';
   var fn=mots.length,ix=0;
   function nx(){
     if(ix>=pf.length){
       to.style.display='none';
-      if(mots.length){aIdx=fn;cFr=0;tPts=[];rSb();ensureFK();uUI();}
+      var firstNew = fn < mots.length ? fn : null;
+      ensureFK();
+      finalizeDropSession(firstNew, null);
       return;
     }
     var f=pf[ix];
@@ -1768,14 +1930,14 @@ function loadPKL(files){
             var key=clips[ci];
             try{
               var raw=extractPKLMotion(pk[key]);
-              mots.push({name:base+'::'+key,d:null,raw:raw,label:null});
+              mots.push({name:base+'::'+key,d:null,raw:raw,label:null,robotId:bindRobotId});
               ok++;
             }catch(e){console.warn(base+'::'+key+' skipped:',e.message);}
           }
           console.log(base+': loaded '+ok+'/'+clips.length+' clips');
         } else {
           var raw=extractPKLMotion(pk);
-          mots.push({name:base,d:null,raw:raw,label:null});
+          mots.push({name:base,d:null,raw:raw,label:null,robotId:bindRobotId});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -1823,12 +1985,16 @@ function procEntries(entries) {
     if(pend>0||finished)return;
     finished=true;
     to.style.display='none';
+    var sessionRobot = null;
     if(descText && Object.keys(stl).length) {
-      try { loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
+      try { sessionRobot = loadRobot(descText, stl); } catch(e) { console.error('Robot load error:', e); $('ms').textContent='Robot description error: '+e.message;$('ms').className='ms warn'; }
     }
-    if(npz.length) loadNPZ(npz);
-    if(pkl.length) loadPKL(pkl);
+    var bindId = sessionRobot ? sessionRobot.id : null;
+    var anyMotion = npz.length || pkl.length || bvh.length;
+    if(npz.length) loadNPZ(npz, bindId);
+    if(pkl.length) loadPKL(pkl, bindId);
     if(bvh.length) loadBVH(bvh);
+    if (sessionRobot && !anyMotion) finalizeDropSession(null, sessionRobot);
   }
 
   function readEntry(en) {
@@ -1905,10 +2071,14 @@ function procFileList(files) {
       })(stlF[s]);
     }
     function finalize(){
-      try { loadRobot(descText, stl); } catch(e) { console.error(e); }
-      if(npzF.length) loadNPZ(npzF);
-      if(pklF.length) loadPKL(pklF);
+      var sessionRobot = null;
+      try { sessionRobot = loadRobot(descText, stl); } catch(e) { console.error(e); }
+      var bindId = sessionRobot ? sessionRobot.id : null;
+      var anyMotion = npzF.length || pklF.length || bvhF.length;
+      if(npzF.length) loadNPZ(npzF, bindId);
+      if(pklF.length) loadPKL(pklF, bindId);
       if(bvhF.length) loadBVH(bvhF);
+      if (sessionRobot && !anyMotion) finalizeDropSession(null, sessionRobot);
     }
   } else if(npzF.length||pklF.length||bvhF.length) {
     loadMotionFiles(files);
@@ -1958,14 +2128,20 @@ $('bt').onclick=function(){sTrl=!sTrl;this.classList.toggle('on2',sTrl);if(!sTrl
 $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
+$('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
+$('bre').onclick=function(){
+  var pop=$('brep');
+  if(pop.style.display==='none'){renderReassignPopup();pop.style.display='block';}
+  else pop.style.display='none';
+};
 window.addEventListener('keydown',function(e){
   if(!mots.length)return;
   var m=mots[aIdx]?mots[aIdx].d:null;if(!m)return;
   if(e.code==='Space'){e.preventDefault();play=!play;uUI();}
   else if(e.code==='ArrowRight'){e.preventDefault();cTime=Math.min(cTime+1/m.fps,longestPlayingDur());play=false;uUI();}
   else if(e.code==='ArrowLeft'){e.preventDefault();cTime=Math.max(cTime-1/m.fps,0);play=false;uUI();}
-  else if(e.code==='BracketRight'){e.preventDefault();clearExtras();aIdx=(aIdx+1)%mots.length;cTime=0;tPts=[];rSb();uUI();}
-  else if(e.code==='BracketLeft'){e.preventDefault();clearExtras();aIdx=(aIdx-1+mots.length)%mots.length;cTime=0;tPts=[];rSb();uUI();}
+  else if(e.code==='BracketRight'){e.preventDefault();switchPrimary((aIdx+1)%mots.length);}
+  else if(e.code==='BracketLeft'){e.preventDefault();switchPrimary((aIdx-1+mots.length)%mots.length);}
   else if(e.code==='KeyY'){e.preventDefault();setLabel('keep');}
   else if(e.code==='KeyN'){e.preventDefault();setLabel('abort');}
 });
