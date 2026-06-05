@@ -112,10 +112,7 @@
   .hdr-i{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--t2)}
   .main{flex:1;display:flex;overflow:hidden}
   .sb{width:230px;border-right:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0}
-  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;display:flex;justify-content:space-between;align-items:center}
-  .sb-solo{font-family:'IBM Plex Mono',monospace;font-size:10px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--t2);padding:2px 8px;cursor:pointer;letter-spacing:1px}
-  .sb-solo:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
-  .sb-solo:disabled{opacity:.35;cursor:default}
+  .sb-l{padding:10px 14px 6px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px}
   .sb-tabs{display:flex;gap:4px;padding:0 12px 6px;flex-shrink:0}
   .sb-tab{flex:1;text-align:center;padding:5px 4px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;text-transform:uppercase;letter-spacing:1px;transition:all .12s}
   .sb-tab:hover{border-color:var(--cyan);color:var(--cyan)}
@@ -205,7 +202,7 @@
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
-      <div class="sb-l" id="sbl"><span id="sblt">Motions</span><button class="sb-solo" id="bso" disabled title="Remove all extras, keep only the primary motion playing">Solo</button></div>
+      <div class="sb-l" id="sbl">Motions</div>
       <div class="sb-tabs" id="st"></div>
       <div class="sb-list" id="sl"></div>
       <div class="sb-a">
@@ -1324,40 +1321,6 @@ function longestPlayingDur() {
   return dur;
 }
 
-// Switch the primary motion. Preserves the extras set and the cTime clock
-// so other instances keep playing in sync. If the new motion lives on a
-// different robot than the one currently in scene, the primary LG (and FK
-// chain) is rebuilt from the new robot's template. If the target was an
-// extra, it's removed from extras (it's now the primary).
-function switchPrimary(mIdx) {
-  if (aIdx === mIdx || !mots[mIdx]) return;
-  removeExtra(mIdx);
-  var mot = mots[mIdx];
-  var r = robotById(mot.robotId);
-  if (r && currentRobotId !== r.id) {
-    disposeGroupArray(LG);
-    LG = []; bodyNames = [];
-    var built;
-    if (r.kind === 'rigid') {
-      built = buildRigidLG(r.template.bodies, r.template.stlMap, false);
-      fkInfo = buildFKChain(r.template.urdf, r.template.bodies);
-    } else {
-      built = buildBVHLG(r.template.bvh, r.template.scale);
-      fkInfo = null;
-    }
-    for (var i = 0; i < built.LG.length; i++) scene.add(built.LG[i]);
-    LG = built.LG; bodyNames = built.names; nBodies = built.LG.length;
-    meshLoaded = true;
-    currentRobotId = r.id;
-    if (r.kind === 'rigid') ensureFK();
-    $('hi').textContent = r.name + ' | ' + nBodies + ' bodies';
-  }
-  aIdx = mIdx;
-  cFr = 0;   // will be recomputed from cTime on next tick
-  tPts = [];
-  rSb(); uUI();
-}
-
 // Pure helper: builds a fresh set of body Groups from a rigid-robot template
 // (URDF/MJCF). Returns {LG, names, loaded, missing}. Does NOT add to scene
 // and does NOT touch globals — so we can call it once for the primary and
@@ -1738,17 +1701,15 @@ function rSb(){
         rSb();uUI();
         return;
       }
-      // Plain click: switch primary. Extras and clock are preserved so
-      // the rest of the playing set keeps going in sync.
-      switchPrimary(ii);
+      // Plain click: switch primary, drop all extras, restart clock.
+      clearExtras();
+      aIdx=ii;cFr=0;cTime=0;tPts=[];rSb();uUI();
     };
     el.appendChild(d);
     if(i===aIdx)actEl=d;
   }
   var headLbl=sbFilter==='all'?'Motions':sbFilter.toUpperCase();
-  $('sblt').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
-  $('bso').disabled = extras.length === 0;
-  $('bso').textContent = extras.length ? 'Solo (\u2212' + extras.length + ')' : 'Solo';
+  $('sbl').textContent=mots.length?headLbl+' \u00b7 '+labeled[sbFilter]+'/'+counts[sbFilter]:'Motions';
   if(actEl)actEl.scrollIntoView({block:'nearest'});
   var hiText = mots.length ? mots.length+' motion'+(mots.length>1?'s':'') : '';
   if (meshLoaded && bodyNames.length) hiText = $('hi').textContent.split('|')[0].trim() + (hiText ? ' | ' + hiText : '');
@@ -2037,15 +1998,14 @@ $('bt').onclick=function(){sTrl=!sTrl;this.classList.toggle('on2',sTrl);if(!sTrl
 $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
-$('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
 window.addEventListener('keydown',function(e){
   if(!mots.length)return;
   var m=mots[aIdx]?mots[aIdx].d:null;if(!m)return;
   if(e.code==='Space'){e.preventDefault();play=!play;uUI();}
   else if(e.code==='ArrowRight'){e.preventDefault();cTime=Math.min(cTime+1/m.fps,longestPlayingDur());play=false;uUI();}
   else if(e.code==='ArrowLeft'){e.preventDefault();cTime=Math.max(cTime-1/m.fps,0);play=false;uUI();}
-  else if(e.code==='BracketRight'){e.preventDefault();switchPrimary((aIdx+1)%mots.length);}
-  else if(e.code==='BracketLeft'){e.preventDefault();switchPrimary((aIdx-1+mots.length)%mots.length);}
+  else if(e.code==='BracketRight'){e.preventDefault();clearExtras();aIdx=(aIdx+1)%mots.length;cTime=0;tPts=[];rSb();uUI();}
+  else if(e.code==='BracketLeft'){e.preventDefault();clearExtras();aIdx=(aIdx-1+mots.length)%mots.length;cTime=0;tPts=[];rSb();uUI();}
   else if(e.code==='KeyY'){e.preventDefault();setLabel('keep');}
   else if(e.code==='KeyN'){e.preventDefault();setLabel('abort');}
 });
