@@ -146,8 +146,8 @@
   .info{position:absolute;top:10px;left:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(8,8,15,.85);padding:6px 12px;border-radius:4px;border:1px solid var(--border);backdrop-filter:blur(8px);pointer-events:none}
   .info .n{color:var(--cyan)}.info .s{color:var(--t3);margin:0 6px}
   .drop{position:fixed;inset:0;background:rgba(45,154,170,.1);border:3px dashed var(--cyan);display:none;align-items:center;justify-content:center;font-size:18px;color:var(--cyan);font-weight:600;backdrop-filter:blur(4px);z-index:100;flex-direction:column;gap:8px}
-  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;pointer-events:none;z-index:5}
-  .empty .ic{font-size:48px;opacity:.35}.empty .lb{font-size:14px;color:var(--t1)}.empty .ht{font-size:12px;color:var(--t2);text-align:center;line-height:1.7}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:flex-start;gap:14px;pointer-events:none;z-index:5}
+  .empty .ic{font-size:48px;opacity:.35}.empty .lb{font-size:14px;color:var(--t1)}.empty .ht{font-size:12px;color:var(--t2);text-align:flex-start;;line-height:1.7}
   .ctrl{display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--border);background:var(--panel);flex-shrink:0;font-family:'IBM Plex Mono',monospace;flex-wrap:wrap}
   .cb{background:none;border:1px solid var(--border);border-radius:4px;color:var(--t2);padding:4px 10px;cursor:pointer;font-size:14px;font-family:inherit;min-width:36px;text-align:center}
   .cb:hover{border-color:var(--cyan);color:var(--cyan)}
@@ -208,7 +208,7 @@
 </div>
 
 <div id="app">
-  <div class="hdr"><div class="hdr-l"><div class="logo">MV</div><span class="hdr-t">MOTION VIEWER</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF/MJCF + meshes) + .npz / .pkl</span></div>
+  <div class="hdr"><div class="hdr-l"><div class="logo">GIAR</div><span class="hdr-t">Grupo de Investigación en Inteligencia Artificial y Robótica - UTN FRBA</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF/MJCF + meshes) + .npz / .pkl</span></div>
   <div class="main">
     <div class="sb">
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
@@ -231,7 +231,7 @@
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
-      <div class="empty" id="es"><div class="ic">🤖</div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
+      <div class="empty" id="es"><div class="ic"><img src="giar_logo_1_1x.png" alt="Grupo de Investigación en Inteligencia Artificial y Robótica (UTN FRBA)" width="150" height="50" /></div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
   </div>
@@ -1411,6 +1411,71 @@ function loadRobot(descText, stlMap) {
   return r;
 }
 
+// Función para colocar el robot en su postura de reposo por defecto
+function applyDefaultPose() {
+  if (!LG.length || !currentRobotId) return;
+  var r = robotById(currentRobotId);
+  if (!r || r.kind !== 'rigid') return;
+
+  var nB = LG.length;
+  var dummyMot = {
+    nB: nB,
+    nF: 1,
+    fps: 1,
+    yUp: false,
+    pF: new Float32Array(nB * 3),
+    qF: new Float32Array(nB * 4)
+  };
+
+  for (var i = 0; i < nB; i++) {
+    dummyMot.qF[i * 4] = 1.0; // Quaternión identidad [w=1, x=0, y=0, z=0]
+  }
+
+  // 1. Resolver FK inicial en pose cero
+  if (fkInfo) {
+    var rawZero = {
+      fps: 1,
+      nF: 1,
+      nD: fkInfo.nD,
+      rootPos: new Float32Array([0, 0, 0]),
+      rootRot: new Float32Array([1, 0, 0, 0]),
+      dofPos: new Float32Array(fkInfo.nD)
+    };
+    try {
+      dummyMot = precomputeFK(fkInfo, rawZero);
+    } catch(e) {
+      console.warn('No se pudo precalcular FK inicial:', e);
+    }
+  }
+
+  // 2. Aplicar la orientación Z-up -> Y-up
+  updatePoseLG(LG, dummyMot, 0, null);
+
+  // 3. Calcular la Bounding Box global para encontrar la altura mínima (suela del pie)
+  scene.updateMatrixWorld(true);
+  var minY = Infinity;
+
+  LG.forEach(function(grp) {
+    var box = new THREE.Box3().setFromObject(grp);
+    if (!box.isEmpty()) {
+      minY = Math.min(minY, box.min.y);
+    }
+  });
+
+  // 4. Si se encontró una altura válida, compensar el eje Y para que pise el suelo (Y = 0)
+  if (isFinite(minY)) {
+    LG.forEach(function(grp) {
+      grp.position.y -= minY;
+    });
+  }
+
+  // 5. Enfocar la cámara al centro del robot apoyado
+  if (fCam && LG[0]) {
+    cTgt.set(LG[0].position.x, 0.8, LG[0].position.z);
+    uCam();
+  }
+}
+
 // BUILDS LG from a robot's template and makes it the current in-scene
 // primary. Tears down whatever LG was previously rendered. Also tears down
 // extras since their meshes were bound to the OLD scene's robot life-cycle.
@@ -1434,6 +1499,7 @@ function activateRobot(r) {
   currentRobotId = r.id;
   if (r.kind === 'rigid') ensureFK();
   $('hi').textContent = r.name + ' | ' + nBodies + (r.kind === 'bvh' ? ' joints' : ' bodies');
+  applyDefaultPose();
 }
 
 // Switch the primary motion. If the new motion lives on a different robot
