@@ -1866,18 +1866,17 @@ function uUI(){
   }
 }
 
-// ── NPZ loading ──
+// ── NPZ loading (Con FK directa + cuaternión wxyz nativo) ──
 function loadNPZ(files, sessionRobotId){
   var nf=[];
   for(var i=0;i<files.length;i++)
     if(files[i].name.toLowerCase().endsWith('.npz'))nf.push(files[i]);
   if(!nf.length)return;
   nf.sort(function(a,b){return a.name.localeCompare(b.name);});
-  // Orphan motions (drop without a URDF in this session) attach to the most
-  // recently loaded RIGID robot — never to a BVH (BVH skeleton is file-bound).
+  
   var bindRobotId = sessionRobotId || lastRigidRobotId;
   if (!bindRobotId) {
-    console.warn('NPZ dropped without any rigid robot in the library — drop URDF/MJCF first. Skipping ' + nf.length + ' file(s).');
+    console.warn('NPZ dropped without any rigid robot in the library.');
     $('ms').textContent='⚠ No URDF/MJCF loaded — drop a robot first';
     $('ms').className='ms warn';
     return;
@@ -1898,9 +1897,54 @@ function loadNPZ(files, sessionRobotId){
     rd.onload=async function(ev){
       try{
         var a=await parseNPZ(ev.target.result);
-        if(a.body_pos_w){
+        if(a.joint_pos && fkInfo){
+          var fps = a.fps ? (a.fps.data ? a.fps.data[0] : a.fps) : 50;
+          var nF = a.joint_pos.shape[0];
+          var nD = a.joint_pos.shape[1];
+          
+          // 1. Root Position (x,y,z) del cuerpo 0
+          var rootPos = new Float32Array(nF * 3);
+          if(a.body_pos_w){
+            for(var frame=0; frame<nF; frame++){
+              rootPos[frame*3]   = a.body_pos_w.data[frame*30*3];
+              rootPos[frame*3+1] = a.body_pos_w.data[frame*30*3+1];
+              rootPos[frame*3+2] = a.body_pos_w.data[frame*30*3+2];
+            }
+          }
+          
+          // 2. Root Rotation manteniendo la convención [w, x, y, z] que espera precomputeFK
+          var rootRot = new Float32Array(nF * 4);
+          if(a.body_quat_w){
+            for(var frame=0; frame<nF; frame++){
+              var base = frame * 30 * 4;
+              rootRot[frame*4]   = a.body_quat_w.data[base + 0]; // w
+              rootRot[frame*4+1] = a.body_quat_w.data[base + 1]; // x
+              rootRot[frame*4+2] = a.body_quat_w.data[base + 2]; // y
+              rootRot[frame*4+3] = a.body_quat_w.data[base + 3]; // z
+            }
+          } else {
+            for(var frame=0; frame<nF; frame++) rootRot[frame*4] = 1.0;
+          }
+
+          // 3. Mapear DoFs del NPZ al orden exacto de joints en fkInfo.chain
+          var rawDof = a.joint_pos.data;
+          
+          var rawMotion = {
+            fps: fps,
+            nF: nF,
+            nD: nD,
+            rootPos: rootPos,
+            rootRot: rootRot,
+            dofPos: rawDof
+          };
+
+          // 4. Calcular FK (esto deja la simulación lista en el formato interno pF/qF de PKL)
+          var d = precomputeFK(fkInfo, rawMotion);
+          
+          mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
+        } else if(a.body_pos_w){
           var d=extractMotion(a);
-          mots.push({name:f.name.replace('.npz',''),d:d,label:null,robotId:bindRobotId});
+          mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
@@ -1910,7 +1954,6 @@ function loadNPZ(files, sessionRobotId){
   }
   nx();
 }
-
 // ── PKL loading (root + DoF → FK to world body poses) ──
 function loadPKL(files, sessionRobotId){
   var pf=[];
