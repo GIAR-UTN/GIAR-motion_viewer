@@ -1,4 +1,4 @@
-# Motion Viewer — NPZ / PKL Viewer / Player for URDF & MJCF Humanoid Robots
+# Motion Viewer — NPZ / PKL Viewer / Player for URDF & MJCF Humanoid Robots — GIAR fork
 
 A free, browser-based viewer and player for humanoid robot motion. Load a robot via **URDF or MJCF (.xml)** with STL meshes and play back **`.npz` or `.pkl`** motion trajectories — everything runs client-side, no server, no upload, no install.
 
