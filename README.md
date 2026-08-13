@@ -22,7 +22,7 @@ A free, browser-based viewer and player for humanoid robot motion. Load a robot 
 
 ## Quick Start
 
-1. Open the [live demo](https://zelin-tao.github.io/motion-viewer/) or `index.html` locally
+1. Open the [live demo](https://giar-mv.9zteam.pp.ua/) or `index.html` locally
 2. Drag a **robot folder** (containing a `.urdf` or `.xml` + `.stl` meshes) into the window
 3. Drag one or more **`.npz` or `.pkl`** motion files into the window
 4. Use the playback bar to control visualization
