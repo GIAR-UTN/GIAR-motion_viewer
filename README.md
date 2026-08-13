@@ -2,7 +2,7 @@
 
 A free, browser-based viewer and player for humanoid robot motion. Load a robot via **URDF or MJCF (.xml)** with STL meshes and play back **`.npz` or `.pkl`** motion trajectories — everything runs client-side, no server, no upload, no install.
 
-**[🚀 Live Demo](https://zelin-tao.github.io/motion-viewer/)**
+**[🚀 Live Demo](https://giar-mv.9zteam.pp.ua/)**
 
 > Search keywords: *npz viewer · npz player · pkl viewer · urdf viewer · mjcf viewer · urdf motion player · humanoid motion viewer · Unitree G1 viewer · Isaac Lab npz · GMR pkl · AMASS viewer · mocap viewer*
 
