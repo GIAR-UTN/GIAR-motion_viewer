@@ -990,6 +990,7 @@ function parsePickle(ab){
       case 0x47:{var v=dv.getFloat64(pos,false);pos+=8;stack.push(v);break;}
       case 0x8c:{var n=b[pos++];stack.push(_str(n));break;}
       case 0x8d:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_str(n));break;}
+      case 0x58:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_str(n));break;}
       case 0x42:{var n=dv.getUint32(pos,true);pos+=4;stack.push(_bytes(n));break;}
       case 0x43:{var n=b[pos++];stack.push(_bytes(n));break;}
       case 0x28:stack.push(PICKLE_MARK);break;
@@ -1045,6 +1046,30 @@ function extractPKLMotion(d){
       rootPos[f*3]=arr[off];rootPos[f*3+1]=arr[off+1];rootPos[f*3+2]=arr[off+2];
       rootRot[f*4]=arr[off+3];rootRot[f*4+1]=arr[off+4];rootRot[f*4+2]=arr[off+5];rootRot[f*4+3]=arr[off+6];
       for(var j=0;j<nD;j++)dofPos[f*nD+j]=arr[off+7+j];
+    }
+  } else if(d&&d.frames&&Array.isArray(d.frames)&&d.frames.length&&Array.isArray(d.frames[0])){
+    // MimicKit format: {fps, frames:[[x,y,z, expX,expY,expZ, j0..jN], ...]}. Root
+    // rotation is a 3-vector exponential map (NOT a quaternion); joints are in
+    // URDF/MJCF document order (FL→FR→RL→RR for quadrupeds).
+    var fr0=d.frames[0];
+    nF=d.frames.length;
+    var stride=fr0.length;
+    if(stride<7)throw new Error('PKL MimicKit frames too narrow');
+    nD=stride-6;
+    rootPos=new Float32Array(nF*3);
+    rootRot=new Float32Array(nF*4); // wxyz
+    dofPos=new Float32Array(nF*nD);
+    for(var f=0;f<nF;f++){
+      var fr=d.frames[f];
+      rootPos[f*3]=fr[0];rootPos[f*3+1]=fr[1];rootPos[f*3+2]=fr[2];
+      var ex=fr[3],ey=fr[4],ez=fr[5];
+      var ang=Math.sqrt(ex*ex+ey*ey+ez*ez);
+      var s=(ang<1e-8)?0.5:Math.sin(ang/2)/ang;
+      rootRot[f*4]  =Math.cos(ang/2); // w
+      rootRot[f*4+1]=ex*s;            // x
+      rootRot[f*4+2]=ey*s;            // y
+      rootRot[f*4+3]=ez*s;            // z
+      for(var j=0;j<nD;j++)dofPos[f*nD+j]=fr[6+j]||0;
     }
   } else {
     var rp=d.root_pos||d.root_trans_offset,rr=d.root_rot,dp=d.dof_pos||d.dof;
@@ -2115,6 +2140,7 @@ var MODEL_LIBRARY = [
   { label: 'G1-D',              desc: 'unitree_ros/robots/g1_d_description/g1_d.urdf',                    meshDir: 'unitree_ros/robots/g1_d_description/meshes' },
   { label: 'G1 29dof rev 1.0',  desc: 'unitree_ros/robots/g1_description/g1_29dof_rev_1_0.urdf',          meshDir: 'unitree_ros/robots/g1_description/meshes' },
   { label: 'G1 (BrainCo hand)', desc: 'unitree_ros/robots/g1_with_brainco_hand/g1_29dof_mode_15_brainco_hand.urdf', meshDir: 'unitree_ros/robots/g1_with_brainco_hand/meshes' },
+  { label: 'Go2',               desc: 'unitree_ros/robots/go2_description/go2.urdf',                    meshDir: 'unitree_ros/robots/go2_description/meshes' },
   { label: 'H1_2',              desc: 'unitree_ros/robots/h1_2_description/h1_2.urdf',                    meshDir: 'unitree_ros/robots/h1_2_description/meshes' },
   { label: 'H1_2 (handless)',   desc: 'unitree_ros/robots/h1_2_description/h1_2_handless.urdf',           meshDir: 'unitree_ros/robots/h1_2_description/meshes' },
   { label: 'H1 (URDF)',         desc: 'unitree_ros/robots/h1_description/urdf/h1.urdf',                   meshDir: 'unitree_ros/robots/h1_description/meshes' },
