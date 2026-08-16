@@ -3,12 +3,14 @@
 Browser-based humanoid motion viewer/player (GIAR fork of motion-viewer). **All application code lives in a single file, `index.html` (~2300 lines of vanilla JS + Three.js via CDN).** There is no build step, no `package.json`, no test suite, no linter, no typecheck — do not look for or run any of those.
 
 ## How to verify changes
-- No automated verification exists. Test manually: `python -m http.server 8000` in the repo root, open `http://localhost:8000`, then drag `demo/unitree_g1/` + `demo/dance1_subject2.npz` into the window.
+- No automated verification exists. Test manually: `python -m http.server 8000` in the repo root, open `http://localhost:8000`, then drag `demo/unitree_g1/` + `demo/dance1_subject2.npz` into the window. To test the preset buttons, click **G1 moves** or **Go2 moves** in the right-hand "Presets" panel instead of dragging.
 - Editing `index.html` does not require a rebuild; just reload the page.
 
 ## Structure
 - `index.html` — the entire app: URDF/MJCF parsers, NPZ/PKL/BVH loaders, forward kinematics, Three.js rendering, UI.
 - `demo/` — sample robot + motion. Note `demo/dance1_subject2.npz` is only 133 bytes (a stub), not the full 131s dance described in the README.
+- `demo/g1_moves/` — **60 real G1 `.npz` motions** (Karate / Dance / Move / Short / V sets), each with 29 DoF matching the G1 URDF. Loaded in bulk by the **G1 moves** preset button.
+- `demo/go2_moves/` — **7 real Go2 `.pkl` motions** (`go2_pace/run/trot/walk0..3`). Loaded in bulk by the **Go2 moves** preset button.
 - `unitree_ros/` — **vendored subset** of Unitree ROS descriptions, tracked directly in this repo. It was pruned from the full `unitree_ros` clone to only the description files + STL meshes used by `MODEL_LIBRARY` (~232 MB, 378 files). It is NOT a nested git repo anymore (the nested `.git` was removed) — treat it as plain repo content.
 - Static site files: `CNAME`, `sitemap.xml`, `robots.txt`, `google*.html` (site verification) — served on GitHub Pages.
 
@@ -18,7 +20,7 @@ STL, npz, and `.gitattributes` mark these as **binary, committed directly as reg
 ## Data conventions (easy to get wrong)
 - Motion coordinates are **Z-up** (Isaac/MuJoCo); the viewer converts to Y-up for rendering — do not "fix" the raw data.
 - NPZ quaternions are **wxyz**; PKL `root_rot` is **xyzw**.
-- NPZ uses keys `fps`, `body_pos_w`, `body_quat_w`; PKL uses `fps`, `root_pos`, `root_rot`, `dof_pos`.
+- NPZ uses keys `fps`, `body_pos_w`, `body_quat_w`; PKL uses `fps`, `root_pos`, `root_rot`, `dof_pos`. The G1 preset `.npz` files also carry `joint_pos` (29 DoF), which `loadNPZ` maps onto the G1 URDF via `precomputeFK`.
 - Mesh resolution is by **filename only** (case-insensitive), binary STL only.
 - PKL joint mapping: see `PKL_JOINT_PRESETS` in `index.html` (~line 1071) — DoF slots are matched to URDF joints by name because PKL/MJCF joint sets can differ from the URDF.
 - NPZ supports both uncompressed and `deflate-raw`-compressed payloads (via `DecompressionStream`).
@@ -31,3 +33,11 @@ STL, npz, and `.gitattributes` mark these as **binary, committed directly as reg
 - Adding a model requires **fetch-path correctness**: every `.stl` basename referenced by `desc` must exist directly in `meshDir` (case-sensitive), because the loader fetches `meshDir/<basename>` and the viewer matches meshes by lowercase basename only.
 - Excluded from the library: robots whose description references non-STL meshes (`.obj`/`.dae`) — e.g. `b2_description_mujoco` (OBJ), `h2_plus` (DAE + duplicate basenames across `left_sharpa`/`right_sharpa` which collide in the flat basename map). `z1_description` uses `.dae` visuals.
 - The library fetches `unitree_ros/robots/*` over HTTP. Because `unitree_ros/` is now tracked in the repo, the model picker works both locally (`python -m http.server`) and on GitHub Pages without users supplying robots. When adding a model, add its desc + referenced STL meshes to `unitree_ros/` (pruned to only what the loader fetches).
+
+## Preset buttons (right-hand "Presets" panel)
+- Two buttons, **G1 moves** and **Go2 moves**, live in the right menu (`index.html` ~line 278) next to the "Basic moves" panel.
+- They call `loadPresetMotions(key)` (`index.html` ~line 2570), which loads a library model via `loadLibraryModel(modelIdx, cb)` and then `fetch`es every motion file, wraps each `ArrayBuffer` in a `File`, and passes them to `loadNPZ` / `loadPKL`.
+- `MOTION_PRESETS` (`index.html` ~line 2566) maps `g1` → model idx 2 (`G1 29dof rev 1.0`) + `demo/g1_moves/*.npz`, and `go2` → model idx 4 (`Go2`) + `demo/go2_moves/*.pkl`.
+- The file lists are **hardcoded** in `G1_MOVE_FILES` / `GO2_MOVE_FILES` (not scraped from a directory listing), because GitHub Pages does not serve directory listings. If you add/remove a motion file in `demo/`, update these arrays too.
+- `loadLibraryModel(idx, cb)` gained an optional `cb` callback invoked after the robot is successfully activated, so the preset loader can chain the motion load after the robot is ready.
+- Basic moves: `Wave` and `Salute` were removed from `BASIC_MOVES` in `index.html` (~line 1655).

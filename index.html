@@ -276,6 +276,13 @@
     </div>
     <div class="mvr">
       <div class="mv">
+        <div class="mvt"><span>Presets</span></div>
+        <div class="mvpose">
+          <button class="pbtn" id="preG1" title="Load the G1 robot and precargar sus movimientos">G1 moves</button>
+          <button class="pbtn" id="preGo2" title="Load the Go2 robot and precargar sus movimientos">Go2 moves</button>
+        </div>
+      </div>
+      <div class="mv">
         <div class="mvt"><span>Basic moves</span><button class="mvgo" id="mvReset" disabled title="Reset to neutral pose">Reset</button></div>
         <div class="mvpose" id="mvp"></div>
         <div class="mvn">Cargá un robot y usá las poses o mové las articulaciones.</div>
@@ -2490,7 +2497,7 @@ function initModelLibrary() {
   }
 }
 
-function loadLibraryModel(idx) {
+function loadLibraryModel(idx, cb) {
   var m = MODEL_LIBRARY[idx];
   if (!m) return;
   // Replace semantics: drop the previously-loaded robot (if any) and its
@@ -2533,6 +2540,7 @@ function loadLibraryModel(idx) {
         $('ctrlBar').style.display = 'none';
         rSb();
         to.style.display = 'none';
+        if (cb) cb();
       } catch (e) {
         console.error('Library model load error:', e);
         to.style.display = 'none';
@@ -2551,6 +2559,43 @@ $('modelSel').addEventListener('change', function(e) {
   loadLibraryModel(parseInt(v, 10));
 });
 initModelLibrary();
+
+// ── Preset buttons: load a library robot + all of its demo motions ──
+var G1_MOVE_FILES = ['B_AttackKarate.npz','B_BowKarate.npz','B_ChopsKarate.npz','B_CrazyChopsKarate.npz','B_DadDance.npz','B_Fence1.npz','B_Fence2.npz','B_ForwardKarate.npz','B_HandsChop.npz','B_HandsUp.npz','B_LongDance.npz','B_LongKarate.npz','B_SpinKarate.npz','B_SpiralDance.npz','B_StretchDance.npz','B_WiggleDance.npz','J_Dance0_StepTouch.npz','J_Dance11_Gnarly.npz','J_Dance12_LushLife.npz','J_Dance17_Shuffle.npz','J_Dance18_TikTok.npz','J_Dance19_LetsGO.npz','J_Dance1_Modern.npz','J_Dance20_DWG.npz','J_Dance21_Blunt.npz','J_Dance22_Thrilling.npz','J_Dance23_MidnightSun.npz','J_Dance2_Salsa.npz','J_Dance3_Woah.npz','J_Dance4_Broadway.npz','J_Dance5_Hype.npz','J_Dance6_Sassy.npz','J_Dance7_Party.npz','J_Dance8_WestCoast.npz','J_Dance9_PeaceMaker.npz','J_ShortDance13_SingleLadies.npz','J_ShortDance14_Disco.npz','J_ShortDance15_Nineties.npz','J_ShortDance16_JazzWalk.npz','M_Move10.npz','M_Move11.npz','M_Move17.npz','M_Move18.npz','M_Move19.npz','M_Move1.npz','M_Move20.npz','M_Move2.npz','M_Move3.npz','M_Move4.npz','M_Move5.npz','M_Move6.npz','M_Move7.npz','M_Move8.npz','M_Move9.npz','M_ShortMove12.npz','M_ShortMove13.npz','M_ShortMove14.npz','M_ShortMove15.npz','M_ShortMove16.npz','V_PullOver.npz','V_Rocamena.npz'];
+var GO2_MOVE_FILES = ['go2_pace.pkl','go2_run.pkl','go2_trot.pkl','go2_walk0.pkl','go2_walk1.pkl','go2_walk2.pkl','go2_walk3.pkl'];
+
+var MOTION_PRESETS = {
+  g1:  { modelIdx: 2, dir: 'demo/g1_moves',  ext: 'npz', files: G1_MOVE_FILES },
+  go2: { modelIdx: 4, dir: 'demo/go2_moves', ext: 'pkl', files: GO2_MOVE_FILES }
+};
+
+function loadPresetMotions(key) {
+  var p = MOTION_PRESETS[key];
+  if (!p || !p.files.length) return;
+  var to = $('to');
+  loadLibraryModel(p.modelIdx, function() {
+    to.style.display = 'block';
+    var files = [], pend = p.files.length, failed = false;
+    p.files.forEach(function(n) {
+      fetch(p.dir + '/' + n).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + n);
+        return res.arrayBuffer();
+      }).then(function(buf) {
+        try { files.push(new File([buf], n)); } catch (e) { files.push(new Blob([buf], { type: 'application/octet-stream' })); }
+        pend--; maybe();
+      }).catch(function(err) { console.error(n, err); pend--; failed = true; maybe(); });
+    });
+    function maybe() {
+      if (pend > 0) return;
+      if (failed) { to.style.display = 'none'; return; }
+      if (p.ext === 'npz') loadNPZ(files);
+      else loadPKL(files);
+    }
+  });
+}
+
+$('preG1').addEventListener('click', function() { loadPresetMotions('g1'); });
+$('preGo2').addEventListener('click', function() { loadPresetMotions('go2'); });
 
 // ── Drag & Drop ──
 var dc=0;

@@ -18,12 +18,13 @@ A free, browser-based viewer and player for humanoid robot motion. Load a robot 
 - **Trajectory trail** — toggle a ground-plane trace of the root path
 - **Multi-motion** — load many motion files at once, switch with `[` / `]`
 - **Type filter** — sidebar tabs to show All / NPZ / PKL
+- **Presets** — one-click load of the G1 robot + its 60 demo motions, or the Go2 robot + its 7 demo motions, from the right-hand panel
 - **Data annotation** — review motions one by one, mark each keep/discard (`Y`/`N`), and export a CSV of all labels
 
 ## Quick Start
 
 1. Open the [live demo](https://giar-mv.9zteam.pp.ua/) or `index.html` locally
-2. Drag a **robot folder** (containing a `.urdf` or `.xml` + `.stl` meshes) into the window
+2. Drag a **robot folder** (containing a `.urdf` or `.xml` + `.stl` meshes) into the window, **or** click **G1 moves** / **Go2 moves** in the right-hand **Presets** panel to load a robot with all its demo motions at once
 3. Drag one or more **`.npz` or `.pkl`** motion files into the window
 4. Use the playback bar to control visualization
 
@@ -43,9 +44,11 @@ A ready-to-use example is included in `demo/`:
 | Asset | Description |
 |-------|-------------|
 | `demo/unitree_g1/` | Unitree G1 humanoid — URDF + 35 STL meshes |
-| `demo/dance1_subject2.npz` | Dance motion (131s, 6574 frames @ 50fps, 30 bodies) |
+| `demo/dance1_subject2.npz` | Dance motion stub (133 bytes; the full 131s dance is not included) |
+| `demo/g1_moves/` | **60 G1 motions** (`.npz`, Karate / Dance / Move / Short / V) — loaded in bulk by the **G1 moves** preset |
+| `demo/go2_moves/` | **7 Go2 motions** (`.pkl`, `go2_pace/run/trot/walk0..3`) — loaded in bulk by the **Go2 moves** preset |
 
-Clone the repo, then drag `demo/unitree_g1/` and `demo/dance1_subject2.npz` into the viewer.
+Clone the repo, then drag `demo/unitree_g1/` and `demo/dance1_subject2.npz` into the viewer, or click **G1 moves** / **Go2 moves** in the right-hand **Presets** panel to load a robot with its full set of demo motions.
 
 ## NPZ Data Format
 
@@ -59,7 +62,7 @@ Body-pose trajectories in the NumPy `.npz` convention from [whole_body_tracking]
 | `body_pos_w` | `(N, num_bodies, 3)` | World-frame body positions |
 | `body_quat_w` | `(N, num_bodies, 4)` | World-frame body orientations (wxyz) |
 
-**Optional keys:** `joint_pos`, `joint_vel`, `body_lin_vel_w`, `body_ang_vel_w`.
+**Optional keys:** `joint_pos`, `joint_vel`, `body_lin_vel_w`, `body_ang_vel_w`. The G1 preset motions in `demo/g1_moves/` include `joint_pos` (29 DoF), which the viewer maps onto the G1 URDF to compute body poses via FK.
 
 `N` = frame count. `num_bodies` must match the robot description's BFS body count (fixed joints collapsed into parent). Both uncompressed and `deflate-raw`-compressed NPZ files are supported.
 
