@@ -1,3 +1,5 @@
-*.STL filter=lfs diff=lfs merge=lfs -text
-*.stl filter=lfs diff=lfs merge=lfs -text
-*.npz filter=lfs diff=lfs merge=lfs -text
+# Binary assets are committed directly (no Git LFS). Marked binary to avoid
+# textual diff noise on STL/npz files.
+*.STL -text -diff
+*.stl -text -diff
+*.npz -text -diff

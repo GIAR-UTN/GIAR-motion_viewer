@@ -9,11 +9,11 @@ Browser-based humanoid motion viewer/player (GIAR fork of motion-viewer). **All 
 ## Structure
 - `index.html` — the entire app: URDF/MJCF parsers, NPZ/PKL/BVH loaders, forward kinematics, Three.js rendering, UI.
 - `demo/` — sample robot + motion. Note `demo/dance1_subject2.npz` is only 133 bytes (a stub), not the full 131s dance described in the README.
-- `unitree_ros/` — **nested git repo** (vendored Unitree ROS descriptions with a `.gitmodules`), untracked in the parent repo (`git status` shows it as `??`). Do not assume its contents are part of the main repo's history.
+- `unitree_ros/` — **vendored subset** of Unitree ROS descriptions, tracked directly in this repo. It was pruned from the full `unitree_ros` clone to only the description files + STL meshes used by `MODEL_LIBRARY` (~232 MB, 378 files). It is NOT a nested git repo anymore (the nested `.git` was removed) — treat it as plain repo content.
 - Static site files: `CNAME`, `sitemap.xml`, `robots.txt`, `google*.html` (site verification) — served on GitHub Pages.
 
-## Git LFS (important)
-STL, npz, and `.gitattributes` are configured for **Git LFS** (`*.STL`, `*.stl`, `*.npz`). Large binary meshes/motions must not be committed directly; they go through LFS. Check `git lfs ls-files` / `.gitattributes` before adding binary assets.
+## Binary assets (not Git LFS)
+STL, npz, and `.gitattributes` mark these as **binary, committed directly as regular git blobs** — Git LFS is NOT used in this repo (not installed). This matches the existing `demo/unitree_g1/*.STL` and `demo/dance1_subject2.npz`. Do not try to route STL/npz through LFS; just `git add` them.
 
 ## Data conventions (easy to get wrong)
 - Motion coordinates are **Z-up** (Isaac/MuJoCo); the viewer converts to Y-up for rendering — do not "fix" the raw data.
@@ -30,4 +30,4 @@ STL, npz, and `.gitattributes` are configured for **Git LFS** (`*.STL`, `*.stl`,
 - `MODEL_LIBRARY` in `index.html` (~2100) is a **hand-curated** list of robots from `unitree_ros/robots/*` that are STL-viewable. Each entry is `{label, desc, meshDir}` where `desc`/`meshDir` are repo-root-relative paths fetched via `fetch()`.
 - Adding a model requires **fetch-path correctness**: every `.stl` basename referenced by `desc` must exist directly in `meshDir` (case-sensitive), because the loader fetches `meshDir/<basename>` and the viewer matches meshes by lowercase basename only.
 - Excluded from the library: robots whose description references non-STL meshes (`.obj`/`.dae`) — e.g. `b2_description_mujoco` (OBJ), `h2_plus` (DAE + duplicate basenames across `left_sharpa`/`right_sharpa` which collide in the flat basename map). `z1_description` uses `.dae` visuals.
-- The library requires `unitree_ros/` to be served over HTTP. Since it's untracked in the parent repo, it is NOT present on GitHub Pages — the model picker only works when `unitree_ros` is served (e.g. local `python -m http.server`).
+- The library fetches `unitree_ros/robots/*` over HTTP. Because `unitree_ros/` is now tracked in the repo, the model picker works both locally (`python -m http.server`) and on GitHub Pages without users supplying robots. When adding a model, add its desc + referenced STL meshes to `unitree_ros/` (pruned to only what the loader fetches).
