@@ -181,6 +181,34 @@
   .mlb select{width:100%;background:var(--bg);color:var(--t1);border:1px solid var(--border);border-radius:4px;padding:7px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer}
   .mlb select:hover{border-color:var(--cyan)}
   .mlb .mls{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);margin-top:5px;line-height:1.5}
+  .mvr{width:250px;border-left:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .mv{padding:10px 14px;flex-shrink:0}
+  .mv .mvt{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+  .mv .mvt .mvgo{color:var(--grn);font-size:9px;letter-spacing:0;cursor:pointer;background:none;border:1px solid var(--border);border-radius:3px;padding:1px 6px}
+  .mv .mvt .mvgo:hover{border-color:var(--cyan);color:var(--cyan)}
+  .mv .mvpose{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+  .mv .pbtn{background:none;border:1px solid var(--border);border-radius:3px;color:var(--t2);padding:4px 7px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:10px;transition:all .12s}
+  .mv .pbtn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+  .mv .pbtn.on{background:rgba(45,154,170,.15);border-color:var(--cyan);color:var(--cyan)}
+  .mv .pbtn:disabled{opacity:.35;cursor:default}
+  .mv .mvj{max-height:170px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .mv .jrow{display:flex;align-items:center;gap:6px;padding:2px 0}
+  .mv .jnm{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);flex:0 0 44%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mv .jrow input[type=range]{flex:1;accent-color:var(--cyan);cursor:pointer;min-width:0}
+  .mv .jrow input[type=range]:disabled{cursor:default;opacity:.35}
+  .mv .jval{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t2);width:44px;text-align:right}
+  .mv .mvn{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);margin-top:5px;line-height:1.5}
+  .lj{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0}
+  .lj .ljt{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+  .lj .ljt .ljm{font-size:9px;color:var(--grn);letter-spacing:0}
+  .lj .ljl{max-height:220px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+  .lj .ljrow{display:flex;align-items:center;gap:6px;padding:2px 0}
+  .lj .ljnm{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);flex:0 0 42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lj .ljbar{flex:1;height:5px;background:var(--bg);border:1px solid var(--border);border-radius:3px;overflow:hidden;position:relative}
+  .lj .ljbar .ljfill{position:absolute;top:0;bottom:0;left:50%;width:0;background:var(--cyan);transition:width .05s linear}
+  .lj .ljbar .ljmid{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border)}
+  .lj .ljval{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t2);width:48px;text-align:right;white-space:nowrap}
+  .lj .mvn{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);line-height:1.5}
 </style>
 </head>
 <body>
@@ -245,6 +273,18 @@
       <div class="info" id="ov" style="display:none"></div>
       <div class="empty" id="es"><div class="ic"><img src="giar_logo_1_1x.png" alt="Grupo de Investigación en Inteligencia Artificial y Robótica (UTN FRBA)" width="150" height="50" /></div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
+    </div>
+    <div class="mvr">
+      <div class="mv">
+        <div class="mvt"><span>Basic moves</span><button class="mvgo" id="mvReset" disabled title="Reset to neutral pose">Reset</button></div>
+        <div class="mvpose" id="mvp"></div>
+        <div class="mvn">Cargá un robot y usá las poses o mové las articulaciones.</div>
+        <div class="mvj" id="mvj"></div>
+      </div>
+      <div class="lj">
+        <div class="ljt"><span>Live joints</span><span class="ljm" id="ljm"></span></div>
+        <div class="ljl" id="ljl"><div class="mvn">Cargá una secuencia de movimiento para ver los joints en tiempo real.</div></div>
+      </div>
     </div>
   </div>
   <div class="ctrl" id="ctrlBar" style="display:none">
@@ -1310,6 +1350,9 @@ function clearRobot() {
   meshLoaded = false;
   fkInfo = null;
   currentRobotId = null;
+  clearManualPose();
+  if ($('ljl')) { $('ljl').innerHTML = '<div class="mvn">Cargá un robot para ver sus joints.</div>'; $('ljm').textContent = ''; }
+  ljInfo = null; ljLastFrame = -1;
   for (var i = 0; i < extras.length; i++) disposeGroupArray(extras[i].LG);
   extras = [];
   for (var i = 0; i < mots.length; i++) {
@@ -1513,6 +1556,296 @@ function applyDefaultPose() {
   }
 }
 
+// ── Basic moves / manual pose ──
+// Lets the user pose the loaded rigid robot without a motion file: either
+// via predefined-pose buttons or by moving per-joint sliders. Both drive a
+// live dofPos buffer that is re-run through the FK each change and rendered
+// as a single static frame (baked to the ground), taking over the render
+// loop until a motion is selected again.
+var manualDofPos = null;   // Float32Array sized to fkInfo.nDof
+var manualMot = null;      // precomputed single-frame FK {pF,qF,nB,nF:1,yUp:false}
+var manualActive = false;  // when true, the render loop shows manualMot
+var manualPoseName = null; // key of the last applied predefined pose
+
+function manualJointNames() {
+  if (!fkInfo) return [];
+  var out = [];
+  for (var i = 0; i < fkInfo.chain.length; i++) {
+    var c = fkInfo.chain[i];
+    if (c && c.type !== 'fixed') out.push({ idx: i, dof: c.dofIdx, name: c.name });
+  }
+  return out;
+}
+function clearManualPose() {
+  manualActive = false; manualMot = null; manualDofPos = null; manualPoseName = null;
+}
+function enterManualMode() {
+  if (!fkInfo || !LG.length) return;
+  if (!manualDofPos) manualDofPos = new Float32Array(fkInfo.nDof);
+  play = false;
+  manualActive = true;
+  if (mots[aIdx] && mots[aIdx].d) uUI();
+}
+function jointDofIndex(name) {
+  if (!fkInfo) return -1;
+  for (var i = 0; i < fkInfo.chain.length; i++) {
+    var c = fkInfo.chain[i];
+    if (c && c.name === name) return c.dofIdx;
+  }
+  return -1;
+}
+// Recompute manualMot from manualDofPos and render it grounded to Y=0.
+function renderManual() {
+  if (!fkInfo || !LG.length) return;
+  if (!manualDofPos) manualDofPos = new Float32Array(fkInfo.nDof);
+  var raw = {
+    fps: 1, nF: 1, nD: fkInfo.nDof,
+    rootPos: new Float32Array(3),
+    rootRot: new Float32Array([1, 0, 0, 0]),
+    dofPos: manualDofPos
+  };
+  try { manualMot = precomputeFK(fkInfo, raw); }
+  catch (e) { console.error('Manual pose FK error:', e); return; }
+  manualMot.nF = 1; manualMot.yUp = false;
+  updatePoseLG(LG, manualMot, 0, null);
+  scene.updateMatrixWorld(true);
+  var minY = Infinity;
+  LG.forEach(function(grp) { var b = new THREE.Box3().setFromObject(grp); if (!b.isEmpty()) minY = Math.min(minY, b.min.y); });
+  // Bake the ground offset into the data (world Y comes from pF[i*3+2] in
+  // updatePoseLG's Z-up→Y-up swap), so the per-frame render loop keeps it.
+  if (isFinite(minY)) {
+    for (var i = 0; i < LG.length; i++) manualMot.pF[i * 3 + 2] -= minY;
+    updatePoseLG(LG, manualMot, 0, null);
+  }
+}
+// Apply a predefined pose: zero every DoF, then set the matched joints.
+function applyPose(pairs, name) {
+  if (!fkInfo || !LG.length) return;
+  enterManualMode();
+  manualDofPos.fill(0);
+  for (var i = 0; i < pairs.length; i++) {
+    var d = jointDofIndex(pairs[i].n);
+    if (d >= 0 && d < manualDofPos.length) manualDofPos[d] = pairs[i].a;
+  }
+  manualPoseName = name || 'neutral';
+  syncJointSliders();
+  updatePoseButtons();
+  renderManual();
+}
+function resetManualPose() { applyPose([], 'neutral'); }
+
+// Predefined poses. Joint-angle signs assume the standard Unitree URDF joint
+// frames; the per-joint sliders let the user fine-tune any robot.
+var HUMAN_POSES = {
+  neutral: { label: 'Neutral', pairs: [] },
+  squat: { label: 'Squat', pairs: [
+    { n: 'left_hip_pitch_joint', a: -0.4 }, { n: 'left_knee_joint', a: 1.1 }, { n: 'left_ankle_pitch_joint', a: -0.7 },
+    { n: 'right_hip_pitch_joint', a: -0.4 }, { n: 'right_knee_joint', a: 1.1 }, { n: 'right_ankle_pitch_joint', a: -0.7 },
+    { n: 'left_shoulder_pitch_joint', a: 0.5 }, { n: 'right_shoulder_pitch_joint', a: 0.5 }
+  ] },
+  armL: { label: 'Arm L', pairs: [
+    { n: 'left_shoulder_pitch_joint', a: 1.6 }, { n: 'left_shoulder_roll_joint', a: 0.2 }, { n: 'left_elbow_joint', a: 0.4 }
+  ] },
+  armR: { label: 'Arm R', pairs: [
+    { n: 'right_shoulder_pitch_joint', a: 1.6 }, { n: 'right_shoulder_roll_joint', a: -0.2 }, { n: 'right_elbow_joint', a: 0.4 }
+  ] },
+  tpose: { label: 'T-pose', pairs: [
+    { n: 'left_shoulder_roll_joint', a: 1.4 }, { n: 'right_shoulder_roll_joint', a: -1.4 }
+  ] },
+  salute: { label: 'Salute', pairs: [
+    { n: 'right_shoulder_pitch_joint', a: 1.5 }, { n: 'right_elbow_joint', a: 0.9 }, { n: 'right_wrist_roll_joint', a: 0.3 }
+  ] },
+  wave: { label: 'Wave', pairs: [
+    { n: 'right_shoulder_pitch_joint', a: 1.5 }, { n: 'right_shoulder_roll_joint', a: 0.4 }, { n: 'right_elbow_joint', a: 1.4 }
+  ] },
+  lean: { label: 'Lean', pairs: [
+    { n: 'waist_pitch_joint', a: 0.5 }, { n: 'left_shoulder_pitch_joint', a: 0.7 }, { n: 'right_shoulder_pitch_joint', a: 0.7 }
+  ] }
+};
+// Quadruped robots (Go2 / A2 / AS2) use FL/FR/RL/RR leg joints.
+var QUAD_POSES = {
+  neutral: { label: 'Neutral', pairs: [] },
+  sit: { label: 'Sit', pairs: [
+    { n: 'FL_thigh_joint', a: 0.9 }, { n: 'FL_calf_joint', a: 1.3 },
+    { n: 'FR_thigh_joint', a: 0.9 }, { n: 'FR_calf_joint', a: 1.3 },
+    { n: 'RL_thigh_joint', a: 0.9 }, { n: 'RL_calf_joint', a: 1.3 },
+    { n: 'RR_thigh_joint', a: 0.9 }, { n: 'RR_calf_joint', a: 1.3 }
+  ] },
+  bow: { label: 'Bow', pairs: [
+    { n: 'FL_calf_joint', a: 0.5 }, { n: 'FR_calf_joint', a: 0.5 },
+    { n: 'RL_calf_joint', a: 0.5 }, { n: 'RR_calf_joint', a: 0.5 },
+    { n: 'FL_thigh_joint', a: 0.4 }, { n: 'FR_thigh_joint', a: 0.4 },
+    { n: 'RL_thigh_joint', a: 0.4 }, { n: 'RR_thigh_joint', a: 0.4 }
+  ] },
+  crouch: { label: 'Crouch', pairs: [
+    { n: 'FL_calf_joint', a: 1.2 }, { n: 'FR_calf_joint', a: 1.2 },
+    { n: 'RL_calf_joint', a: 1.2 }, { n: 'RR_calf_joint', a: 1.2 }
+  ] }
+};
+
+function isQuadruped() {
+  var ns = manualJointNames();
+  return ns.some(function(j) { return /^(FL|FR|RL|RR)_/.test(j.name); });
+}
+function buildPoseButtons() {
+  var wrap = $('mvp');
+  wrap.innerHTML = '';
+  var poses = isQuadruped() ? QUAD_POSES : HUMAN_POSES;
+  Object.keys(poses).forEach(function(k) {
+    var b = document.createElement('button');
+    b.className = 'pbtn'; b.dataset.pose = k; b.textContent = poses[k].label;
+    b.disabled = !fkInfo;
+    b.onclick = function() { applyPose(poses[k].pairs, k); };
+    wrap.appendChild(b);
+  });
+  updatePoseButtons();
+  $('mvReset').disabled = !fkInfo;
+}
+function updatePoseButtons() {
+  var bs = $('mvp').querySelectorAll('.pbtn');
+  for (var i = 0; i < bs.length; i++) {
+    bs[i].classList.toggle('on', bs[i].dataset.pose === manualPoseName);
+  }
+}
+function buildJointSliders() {
+  var wrap = $('mvj');
+  wrap.innerHTML = '';
+  if (!fkInfo) {
+    wrap.innerHTML = '<div class="mvn">Cargá un robot para mover sus articulaciones.</div>';
+    return;
+  }
+  var names = manualJointNames();
+  if (!names.length) { wrap.innerHTML = '<div class="mvn">Sin articulaciones móviles.</div>'; return; }
+  if (!manualDofPos) manualDofPos = new Float32Array(fkInfo.nDof);
+  names.forEach(function(j) {
+    var row = document.createElement('div');
+    row.className = 'jrow';
+    var nm = document.createElement('span'); nm.className = 'jnm'; nm.textContent = j.name; nm.title = j.name;
+    var rng = document.createElement('input');
+    rng.type = 'range'; rng.min = -1.6; rng.max = 1.6; rng.step = 0.01; rng.value = 0;
+    var val = document.createElement('span'); val.className = 'jval'; val.textContent = '0\u00b0';
+    rng.addEventListener('input', function() {
+      enterManualMode();
+      var v = parseFloat(this.value);
+      manualDofPos[j.dof] = v;
+      val.textContent = (v * 180 / Math.PI).toFixed(0) + '\u00b0';
+      manualPoseName = null; updatePoseButtons();
+      renderManual();
+    });
+    row.appendChild(nm); row.appendChild(rng); row.appendChild(val);
+    wrap.appendChild(row);
+  });
+}
+function syncJointSliders() {
+  var rows = $('mvj').children;
+  for (var i = 0; i < rows.length; i++) {
+    var nmEl = rows[i].querySelector('.jnm');
+    var rng = rows[i].querySelector('input');
+    var val = rows[i].querySelector('.jval');
+    if (!nmEl || !rng || !val) continue;
+    var d = jointDofIndex(nmEl.textContent);
+    var v = (d >= 0 && manualDofPos) ? manualDofPos[d] : 0;
+    rng.value = v;
+    val.textContent = (v * 180 / Math.PI).toFixed(0) + '\u00b0';
+  }
+}
+
+// ── Live joints (real-time joint-angle readout) ──
+// Mirrors the dofMap logic in precomputeFK so the displayed per-joint angle
+// matches what the FK actually applied for PKL (and NPZ) motions.
+var ljInfo = null;   // { names:[...], dofIdx:[...] } in URDF order
+var ljLastFrame = -1;
+function buildLiveJoints() {
+  var wrap = $('ljl');
+  wrap.innerHTML = '';
+  ljInfo = null; ljLastFrame = -1;
+  $('ljm').textContent = '';
+  if (!fkInfo) {
+    wrap.innerHTML = '<div class="mvn">Cargá un robot para ver sus joints.</div>';
+    return;
+  }
+  var names = [], dofIdx = [];
+  for (var i = 0; i < fkInfo.chain.length; i++) {
+    var c = fkInfo.chain[i];
+    if (c && c.type !== 'fixed') { names.push(c.name); dofIdx.push(c.dofIdx); }
+  }
+  if (!names.length) {
+    wrap.innerHTML = '<div class="mvn">Sin articulaciones móviles.</div>';
+    return;
+  }
+  ljInfo = { names: names, dofIdx: dofIdx };
+  for (var k = 0; k < names.length; k++) {
+    var row = document.createElement('div');
+    row.className = 'ljrow';
+    var nm = document.createElement('span'); nm.className = 'ljnm'; nm.textContent = names[k]; nm.title = names[k];
+    var bar = document.createElement('div'); bar.className = 'ljbar';
+    bar.innerHTML = '<div class="ljfill"></div><div class="ljmid"></div>';
+    var val = document.createElement('span'); val.className = 'ljval'; val.textContent = '0\u00b0';
+    row.appendChild(nm); row.appendChild(bar); row.appendChild(val);
+    wrap.appendChild(row);
+  }
+}
+// Per-frame per-joint angles for a rigid motion (same mapping as precomputeFK).
+function motionJointAngles(mIdx, fr) {
+  var m = mots[mIdx];
+  if (!m || !m.raw || !m.raw.dofPos || !ljInfo || !fkInfo) return null;
+  var raw = m.raw, nD = raw.nD, dp = raw.dofPos;
+  var preset = PKL_JOINT_PRESETS[nD], dofMap = null;
+  if (preset) {
+    dofMap = new Int32Array(fkInfo.chain.length);
+    for (var i = 0; i < fkInfo.chain.length; i++) {
+      var ce = fkInfo.chain[i];
+      if (!ce) { dofMap[i] = -1; continue; }
+      var k = preset.indexOf(ce.name);
+      dofMap[i] = (k >= 0) ? k : ce.dofIdx;
+    }
+  }
+  var out = new Array(ljInfo.names.length);
+  for (var j = 0; j < ljInfo.names.length; j++) {
+    var name = ljInfo.names[j];
+    var dIdx = dofMap ? dofMap[fkIdxOfName(name)] : ljInfo.dofIdx[j];
+    var angle = (dIdx >= 0 && dIdx < nD) ? dp[fr * nD + dIdx] : 0;
+    out[j] = angle;
+  }
+  return out;
+}
+function fkIdxOfName(name) {
+  for (var i = 0; i < fkInfo.chain.length; i++) {
+    if (fkInfo.chain[i] && fkInfo.chain[i].name === name) return i;
+  }
+  return -1;
+}
+function updateLiveJoints() {
+  var wrap = $('ljl');
+  if (!ljInfo || !wrap || !wrap.children.length) return;
+  var angles = null;
+  if (manualActive && manualDofPos) {
+    angles = ljInfo.dofIdx.map(function(d){ return (d >= 0 && d < manualDofPos.length) ? manualDofPos[d] : 0; });
+    $('ljm').textContent = 'manual';
+  } else if (mots[aIdx] && mots[aIdx].d) {
+    angles = motionJointAngles(aIdx, cFr);
+    $('ljm').textContent = (angles ? (mots[aIdx].name || '') : '');
+  }
+  if (!angles) {
+    $('ljm').textContent = '';
+    for (var z = 0; z < wrap.children.length; z++) {
+      var zf = wrap.children[z].querySelector('.ljfill');
+      var zv = wrap.children[z].querySelector('.ljval');
+      if (zf) zf.style.width = '0%';
+      if (zv) zv.textContent = '\u2013';
+    }
+    return;
+  }
+  var children = wrap.children;
+  for (var i = 0; i < children.length && i < angles.length; i++) {
+    var a = angles[i];
+    var fill = children[i].querySelector('.ljfill');
+    var val = children[i].querySelector('.ljval');
+    if (fill) { var pct = Math.max(-100, Math.min(100, a * 180 / Math.PI)) / 2; fill.style.width = Math.abs(pct) + '%'; fill.style.left = (50 + (pct < 0 ? pct : 0)) + '%'; }
+    if (val) val.textContent = (a * 180 / Math.PI).toFixed(0) + '\u00b0';
+  }
+}
+
 // BUILDS LG from a robot's template and makes it the current in-scene
 // primary. Tears down whatever LG was previously rendered. Also tears down
 // extras since their meshes were bound to the OLD scene's robot life-cycle.
@@ -1537,6 +1870,10 @@ function activateRobot(r) {
   if (r.kind === 'rigid') ensureFK();
   $('hi').textContent = r.name + ' | ' + nBodies + (r.kind === 'bvh' ? ' joints' : ' bodies');
   applyDefaultPose();
+  clearManualPose();
+  buildPoseButtons();
+  buildJointSliders();
+  buildLiveJoints();
 }
 
 // Switch the primary motion. If the new motion lives on a different robot
@@ -1551,6 +1888,7 @@ function switchPrimary(mIdx) {
   if (!r) return;
   removeExtra(mIdx);
   if (currentRobotId !== r.id) activateRobot(r);
+  manualActive = false;
   aIdx = mIdx;
   cFr = 0;
   tPts = [];
@@ -2045,7 +2383,7 @@ function loadNPZ(files, sessionRobotId){
           // 4. Calcular FK (esto deja la simulación lista en el formato interno pF/qF de PKL)
           var d = precomputeFK(fkInfo, rawMotion);
           
-          mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
+          mots.push({name:f.name.replace('.npz',''), d:d, raw:rawMotion, label:null, robotId:bindRobotId});
         } else if(a.body_pos_w){
           var d=extractMotion(a);
           mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
@@ -2137,7 +2475,6 @@ function loadMotionFiles(files){
 var MODEL_LIBRARY = [
   { label: 'A2',                desc: 'unitree_ros/robots/a2_description/a2.xml',                        meshDir: 'unitree_ros/robots/a2_description/meshes' },
   { label: 'AS2',               desc: 'unitree_ros/robots/as2_description/as2.xml',                      meshDir: 'unitree_ros/robots/as2_description/meshes' },
-  { label: 'G1-D',              desc: 'unitree_ros/robots/g1_d_description/g1_d.urdf',                    meshDir: 'unitree_ros/robots/g1_d_description/meshes' },
   { label: 'G1 29dof rev 1.0',  desc: 'unitree_ros/robots/g1_description/g1_29dof_rev_1_0.urdf',          meshDir: 'unitree_ros/robots/g1_description/meshes' },
   { label: 'G1 (BrainCo hand)', desc: 'unitree_ros/robots/g1_with_brainco_hand/g1_29dof_mode_15_brainco_hand.urdf', meshDir: 'unitree_ros/robots/g1_with_brainco_hand/meshes' },
   { label: 'Go2',               desc: 'unitree_ros/robots/go2_description/go2.urdf',                    meshDir: 'unitree_ros/robots/go2_description/meshes' },
@@ -2399,6 +2736,7 @@ $('bre').onclick=function(){
   if(pop.style.display==='none'){renderReassignPopup();pop.style.display='block';}
   else pop.style.display='none';
 };
+$('mvReset').onclick=function(){ resetManualPose(); };
 window.addEventListener('keydown',function(e){
   if(!mots.length)return;
   var m=mots[aIdx]?mots[aIdx].d:null;if(!m)return;
@@ -2416,6 +2754,17 @@ var lt=0;
 function tick(ts){
   requestAnimationFrame(tick);
   var dt=lt?(ts-lt)/1000:0;lt=ts;
+  // Manual pose mode (Basic moves panel): show the single static frame and
+  // skip the motion timeline / extras until a motion is selected again.
+  if(manualActive && manualMot && meshLoaded && LG.length){
+    updatePoseLG(LG, manualMot, 0, null);
+    updateLiveJoints();
+    if(fCam && LG.length){cTgt.lerp(LG[0].position,.05);uCam();}
+    dl.position.set(cTgt.x+3,cTgt.y+5,cTgt.z+4);
+    dl.target.position.copy(cTgt);dl.target.updateMatrixWorld();
+    rn.render(scene,cam);
+    return;
+  }
   var mot=mots[aIdx]?mots[aIdx].d:null;
   if(mot&&meshLoaded){
     var longest=longestPlayingDur();
@@ -2433,6 +2782,7 @@ function tick(ts){
       $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmtS(cTime)+'<span class="s">|</span>f'+cFr+'/'+(mot.nF-1)+(extras.length?'<span class="s">|</span>+'+extras.length:'');
     }
     updatePoseLG(LG, mot, cFr, computeAlignOffset(mot, 0));
+    updateLiveJoints();
     for(var x=0;x<extras.length;x++){
       var em = mots[extras[x].mIdx] && mots[extras[x].mIdx].d;
       if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime), computeAlignOffset(em, x+1));
@@ -2454,6 +2804,9 @@ function tick(ts){
 requestAnimationFrame(tick);
 rn.render(scene,cam);
 rSb(); uUI();
+buildPoseButtons();
+buildJointSliders();
+buildLiveJoints();
 console.log('Motion Viewer ready.');
 })();
 </script>
