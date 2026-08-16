@@ -176,6 +176,11 @@
   .lbl.kbvh{background:rgba(200,140,90,.18);color:#cc8844}
   .tb.keepon{background:rgba(45,170,106,.15);border-color:var(--grn);color:var(--grn)}
   .tb.dropon{background:rgba(170,45,106,.15);border-color:var(--mag);color:var(--mag)}
+  .mlb{padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .mlb .mlt{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+  .mlb select{width:100%;background:var(--bg);color:var(--t1);border:1px solid var(--border);border-radius:4px;padding:7px 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer}
+  .mlb select:hover{border-color:var(--cyan)}
+  .mlb .mls{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);margin-top:5px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -211,6 +216,13 @@
   <div class="hdr"><div class="hdr-l"><div class="logo">GIAR</div><span class="hdr-t">Grupo de Investigación en Inteligencia Artificial y Robótica - UTN FRBA</span></div><span class="hdr-i" id="hi">Drop robot folder (URDF/MJCF + meshes) + .npz / .pkl</span></div>
   <div class="main">
     <div class="sb">
+      <div class="mlb">
+        <div class="mlt"><span>Robot library</span><span id="mlstatus" style="color:var(--grn)">&#9632;</span></div>
+        <select id="modelSel">
+          <option value="">— select a model —</option>
+        </select>
+        <div class="mls" id="mls">Choose a robot model with STL meshes from <span style="color:var(--t2)">unitree_ros</span>, or drop a custom folder below.</div>
+      </div>
       <div class="ms no" id="ms">No robot — drop folder with URDF/MJCF + STL</div>
       <div class="sb-l" id="sbl">
         <span id="sblt">Motions</span>
@@ -1603,6 +1615,7 @@ function renderReassignPopup() {
 function finalizeDropSession(firstNewMotionIdx, sessionRobot) {
   if (firstNewMotionIdx != null && mots[firstNewMotionIdx]) {
     switchPrimary(firstNewMotionIdx);
+    rSb(); uUI(); // always refresh list/tabs — switchPrimary can early-return
     return;
   }
   if (sessionRobot && !meshLoaded) {
@@ -2090,6 +2103,98 @@ function loadMotionFiles(files){
   if(bvh.length)loadBVH(bvh);
 }
 
+// ── Robot model library ──
+// Curated list of robots under unitree_ros/robots that ship binary STL meshes
+// viewable by the viewer. Each entry: {label, desc (relative path to the
+// URDF/MJCF description), meshDir (dir containing the STL meshes)}.
+// Mesh resolution is by basename only (case-insensitive), so a single flat
+// mesh dir per model is sufficient.
+var MODEL_LIBRARY = [
+  { label: 'A2',                desc: 'unitree_ros/robots/a2_description/a2.xml',                        meshDir: 'unitree_ros/robots/a2_description/meshes' },
+  { label: 'AS2',               desc: 'unitree_ros/robots/as2_description/as2.xml',                      meshDir: 'unitree_ros/robots/as2_description/meshes' },
+  { label: 'G1-D',              desc: 'unitree_ros/robots/g1_d_description/g1_d.urdf',                    meshDir: 'unitree_ros/robots/g1_d_description/meshes' },
+  { label: 'G1 29dof rev 1.0',  desc: 'unitree_ros/robots/g1_description/g1_29dof_rev_1_0.urdf',          meshDir: 'unitree_ros/robots/g1_description/meshes' },
+  { label: 'G1 (BrainCo hand)', desc: 'unitree_ros/robots/g1_with_brainco_hand/g1_29dof_mode_15_brainco_hand.urdf', meshDir: 'unitree_ros/robots/g1_with_brainco_hand/meshes' },
+  { label: 'H1_2',              desc: 'unitree_ros/robots/h1_2_description/h1_2.urdf',                    meshDir: 'unitree_ros/robots/h1_2_description/meshes' },
+  { label: 'H1_2 (handless)',   desc: 'unitree_ros/robots/h1_2_description/h1_2_handless.urdf',           meshDir: 'unitree_ros/robots/h1_2_description/meshes' },
+  { label: 'H1 (URDF)',         desc: 'unitree_ros/robots/h1_description/urdf/h1.urdf',                   meshDir: 'unitree_ros/robots/h1_description/meshes' },
+  { label: 'H2',                desc: 'unitree_ros/robots/h2_description/H2.urdf',                        meshDir: 'unitree_ros/robots/h2_description/meshes' },
+  { label: 'R1',                desc: 'unitree_ros/robots/r1_description/R1.urdf',                        meshDir: 'unitree_ros/robots/r1_description/meshes' },
+  { label: 'R1-AIR',            desc: 'unitree_ros/robots/r1_air_description/R1_AIR.urdf',                meshDir: 'unitree_ros/robots/r1_air_description/meshes' }
+];
+
+function initModelLibrary() {
+  var sel = $('modelSel');
+  for (var i = 0; i < MODEL_LIBRARY.length; i++) {
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = MODEL_LIBRARY[i].label;
+    sel.appendChild(o);
+  }
+}
+
+function loadLibraryModel(idx) {
+  var m = MODEL_LIBRARY[idx];
+  if (!m) return;
+  // Replace semantics: drop the previously-loaded robot (if any) and its
+  // motions before showing the newly-selected model.
+  clearRobot();
+  mots = []; aIdx = 0; cFr = 0; cTime = 0; play = true; tPts = [];
+  robots = []; nextRobotId = 1; lastRigidRobotId = null; currentRobotId = null;
+  var to = $('to'); to.style.display = 'block'; to.textContent = 'Loading ' + m.label + '...';
+  fetch(m.desc).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching description');
+    return r.text();
+  }).then(function(descText) {
+    var seen = {}, names = [];
+    var re = /(?:filename|file)\s*=\s*"([^"]*\.stl)"/gi, mt;
+    while ((mt = re.exec(descText)) !== null) {
+      var base = mt[1].split('/').pop().split('\\').pop().toLowerCase();
+      if (!seen[base]) { seen[base] = true; names.push({ base: base, orig: mt[1].split('/').pop().split('\\').pop() }); }
+    }
+    if (!names.length) throw new Error('No STL meshes referenced in description');
+    var stl = {}, pend = names.length, failed = false;
+    names.forEach(function(nm) {
+      var url = m.meshDir + '/' + nm.orig;
+      fetch(url).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + nm.orig);
+        return res.arrayBuffer();
+      }).then(function(buf) {
+        stl[nm.base] = buf; pend--; maybeDone();
+      }).catch(function(err) {
+        console.error('Mesh load error:', err); pend--; failed = true; maybeDone();
+      });
+    });
+    function maybeDone() {
+      if (pend > 0) return;
+      if (failed) { to.style.display = 'none'; $('ms').textContent = 'Failed to load some STL meshes for ' + m.label; $('ms').className = 'ms warn'; return; }
+      try {
+        var robot = loadRobot(descText, stl);
+        activateRobot(robot);
+        $('es').style.display = 'none';
+        $('ov').style.display = 'none';
+        $('ctrlBar').style.display = 'none';
+        rSb();
+        to.style.display = 'none';
+      } catch (e) {
+        console.error('Library model load error:', e);
+        to.style.display = 'none';
+        $('ms').textContent = 'Model error: ' + e.message; $('ms').className = 'ms warn';
+      }
+    }
+  }).catch(function(err) {
+    to.style.display = 'none';
+    $('ms').textContent = 'Model load error: ' + err.message; $('ms').className = 'ms warn';
+  });
+}
+
+$('modelSel').addEventListener('change', function(e) {
+  var v = e.target.value;
+  if (v === '') return;
+  loadLibraryModel(parseInt(v, 10));
+});
+initModelLibrary();
+
 // ── Drag & Drop ──
 var dc=0;
 document.body.addEventListener('dragenter',function(e){e.preventDefault();dc++;$('dr').style.display='flex';});
@@ -2322,6 +2427,7 @@ function tick(ts){
 }
 requestAnimationFrame(tick);
 rn.render(scene,cam);
+rSb(); uUI();
 console.log('Motion Viewer ready.');
 })();
 </script>
