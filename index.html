@@ -145,6 +145,8 @@
   .vp{flex:1;position:relative;background:var(--bg)}.vp canvas{width:100%;height:100%;display:block}
   .info{position:absolute;top:10px;left:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(8,8,15,.85);padding:6px 12px;border-radius:4px;border:1px solid var(--border);backdrop-filter:blur(8px);pointer-events:none}
   .info .n{color:var(--cyan)}.info .s{color:var(--t3);margin:0 6px}
+  .cap{position:absolute;top:10px;right:10px;font-family:'IBM Plex Mono',monospace;font-size:11px;background:rgba(8,8,15,.85);color:var(--t2);border:1px solid var(--border);border-radius:4px;padding:6px 12px;cursor:pointer;backdrop-filter:blur(8px);transition:all .12s;z-index:6}
+  .cap:hover{border-color:var(--cyan);color:var(--cyan)}
   .drop{position:fixed;inset:0;background:rgba(45,154,170,.1);border:3px dashed var(--cyan);display:none;align-items:center;justify-content:center;font-size:18px;color:var(--cyan);font-weight:600;backdrop-filter:blur(4px);z-index:100;flex-direction:column;gap:8px}
   .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:flex-start;gap:14px;pointer-events:none;z-index:5}
   .empty .ic{font-size:48px;opacity:.35}.empty .lb{font-size:14px;color:var(--t1)}.empty .ht{font-size:12px;color:var(--t2);text-align:flex-start;;line-height:1.7}
@@ -271,6 +273,7 @@
     <div class="vp" id="vp">
       <canvas id="cv"></canvas>
       <div class="info" id="ov" style="display:none"></div>
+      <button class="cap" id="bc" title="Save a PNG screenshot of the viewport">&#128247; Capture</button>
       <div class="empty" id="es"><div class="ic"><img src="giar_logo_1_1x.png" alt="Grupo de Investigación en Inteligencia Artificial y Robótica (UTN FRBA)" width="150" height="50" /></div><div class="lb">Motion Viewer</div><div class="ht">Step 1: Drag robot folder containing <b>URDF or MJCF (.xml) + STL meshes</b><br>Step 2: Drag <b>.npz</b> or <b>.pkl</b> motion files</div></div>
       <div class="kb"><span><kbd>Space</kbd> play</span><span><kbd>←→</kbd> step</span><span><kbd>[]</kbd> switch</span><span><kbd>Y</kbd>/<kbd>N</kbd> keep/drop</span></div>
     </div>
@@ -297,6 +300,7 @@
   <div class="ctrl" id="ctrlBar" style="display:none">
     <button class="cb" id="bp">⏸</button>
     <div class="tl"><span class="tm" id="t0">0:00.0</span><input type="range" id="sc" min="0" max="100" value="0"><span class="tm" id="t1">0:00.0</span></div>
+    <div class="sg"><span class="sl">Loop</span><button class="cb ab-btn" id="abA" title="Set loop A to current time">A</button><button class="cb ab-btn" id="abB" title="Set loop B to current time">B</button><button class="tb ab-btn" id="abOn" title="Toggle A–B loop playback">AB</button></div>
     <div class="sg"><span class="sl">Spd</span><button class="spb" data-s="0.25">.25</button><button class="spb" data-s="0.5">.5</button><button class="spb act" data-s="1">1x</button><button class="spb" data-s="2">2x</button></div>
     <button class="tb on" id="bal" title="Cycle align mode: Auto → Spread → As-is">Align: Auto</button>
     <button class="tb on" id="bf">Follow</button>
@@ -1893,6 +1897,7 @@ function switchPrimary(mIdx) {
   aIdx = mIdx;
   cFr = 0;
   tPts = [];
+  clearLoopAB();
   rSb(); uUI();
 }
 
@@ -2192,6 +2197,8 @@ window.addEventListener('resize',function(){W=vp.clientWidth;H=vp.clientHeight;c
 
 // ── State ──
 var mots=[],aIdx=0,cFr=0,cTime=0,play=true,spd=1,fCam=true,sTrl=false,sbFilter='all',alignMode='auto';
+// A–B loop segment: loopOn enables it; loopA/loopB are timestamps (s). null = unset.
+var loopOn=false, loopA=null, loopB=null;
 var SPREAD_STEP = 1.5;
 // Computes a world translation to apply to all bodies of an instance, in
 // the motion's own coord system (XY for Z-up, XZ for Y-up) so the existing
@@ -2210,6 +2217,11 @@ function computeAlignOffset(mot, instanceIdx) {
   return mot.yUp ? { x: -rx, y: 0, z: -rz } : { x: -rx, y: -ry, z: 0 };
 }
 function fmtS(sec){var s=isFinite(sec)?sec:0,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
+function showToast(msg,ms){
+  var t=$('to'); t.textContent=msg; t.style.display='block';
+  clearTimeout(showToast._t);
+  showToast._t=setTimeout(function(){t.style.display='none';}, ms||1600);
+}
 function motFrameAt(mot, t) { return Math.min(Math.max(0, Math.floor(t * mot.fps)), mot.nF - 1); }
 function fmt(f,fps){var s=f/fps,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
 function motKind(m){
@@ -2505,6 +2517,7 @@ function loadLibraryModel(idx, cb) {
   clearRobot();
   mots = []; aIdx = 0; cFr = 0; cTime = 0; play = true; tPts = [];
   robots = []; nextRobotId = 1; lastRigidRobotId = null; currentRobotId = null;
+  clearLoopAB();
   var to = $('to'); to.style.display = 'block'; to.textContent = 'Loading ' + m.label + '...';
   fetch(m.desc).then(function(r) {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' fetching description');
@@ -2753,6 +2766,22 @@ function exportCSV(){
 // ── Controls ──
 $('bp').onclick=function(){play=!play;uUI();};
 $('sc').addEventListener('input',function(){cTime=parseInt(this.value)/1000;play=false;uUI();});
+// A–B loop segment
+function setLoopAB() {
+  var bA=$('abA'), bB=$('abB'), bOn=$('abOn');
+  bA.classList.toggle('on', loopA!=null);
+  bB.classList.toggle('on', loopB!=null);
+  bOn.classList.toggle('on', loopOn);
+  bA.textContent = loopA!=null ? 'A·'+fmtS(loopA) : 'A';
+  bB.textContent = loopB!=null ? 'B·'+fmtS(loopB) : 'B';
+}
+function clearLoopAB() { loopOn=false; loopA=null; loopB=null; setLoopAB(); }
+$('abA').onclick=function(){ loopA=cTime; if(loopB!=null && loopB<loopA) loopB=null; setLoopAB(); };
+$('abB').onclick=function(){ loopB=cTime; if(loopA!=null && loopA>loopB) loopA=null; setLoopAB(); };
+$('abOn').onclick=function(){
+  if(loopA==null || loopB==null || loopB<=loopA){ showToast('Set both A and B points first'); return; }
+  loopOn=!loopOn; if(loopOn && (cTime<loopA||cTime>loopB)) cTime=loopA; setLoopAB();
+};
 var sbs=document.querySelectorAll('.spb');
 for(var i=0;i<sbs.length;i++) sbs[i].onclick=function(){
   spd=parseFloat(this.getAttribute('data-s'));
@@ -2764,6 +2793,34 @@ $('bt').onclick=function(){sTrl=!sTrl;this.classList.toggle('on2',sTrl);if(!sTrl
 $('bk').onclick=function(){setLabel('keep');};
 $('bd').onclick=function(){setLabel('abort');};
 $('bx').onclick=exportCSV;
+var captureLogo = null; // Image loaded lazily for watermarking screenshots
+function captureScreenshot(){
+  rn.render(scene,cam); // ensure a fresh frame before reading the buffer
+  var w=cv.width, h=cv.height;
+  var out=document.createElement('canvas'); out.width=w; out.height=h;
+  var ctx=out.getContext('2d');
+  ctx.drawImage(cv,0,0);
+  var finalize=function(){
+    var url=out.toDataURL('image/png');
+    var a=document.createElement('a');
+    var name=mots[aIdx]&&mots[aIdx].name?mots[aIdx].name:'capture';
+    a.href=url;a.download=name+'.png';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    showToast('Screenshot saved');
+  };
+  // Overlay the GIAR logo in the top-right corner at 150x50.
+  var drawLogo=function(img){
+    var lw=150, lh=50, pad=10;
+    ctx.drawImage(img, w-lw-pad, pad, lw, lh);
+    finalize();
+  };
+  if(captureLogo && captureLogo.complete && captureLogo.naturalWidth>0){ drawLogo(captureLogo); return; }
+  captureLogo=new Image();
+  captureLogo.onload=function(){ drawLogo(captureLogo); };
+  captureLogo.onerror=function(){ finalize(); };
+  captureLogo.src='giar_logo_1_1x.png';
+}
+$('bc').onclick=captureScreenshot;
 $('bso').onclick=function(){if(extras.length){clearExtras();rSb();uUI();}};
 $('bal').onclick=function(){
   alignMode = alignMode==='auto'?'spread':alignMode==='spread'?'asis':'auto';
@@ -2809,7 +2866,12 @@ function tick(ts){
     var longest=longestPlayingDur();
     if(play){
       cTime += dt*spd;
-      if(longest>0 && cTime>=longest) cTime -= Math.floor(cTime/longest)*longest;
+      if(loopOn && loopA!=null && loopB!=null && loopB>loopA){
+        if(cTime<loopA) cTime=loopA;
+        if(cTime>loopB) cTime=loopA+(cTime-loopB)%(loopB-loopA);
+      } else if(longest>0 && cTime>=longest){
+        cTime -= Math.floor(cTime/longest)*longest;
+      }
     }
     cFr = motFrameAt(mot, cTime);
     if(play){
@@ -2846,6 +2908,7 @@ rSb(); uUI();
 buildPoseButtons();
 buildJointSliders();
 buildLiveJoints();
+setLoopAB();
 console.log('Motion Viewer ready.');
 })();
 </script>
