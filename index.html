@@ -211,6 +211,51 @@
   .lj .ljbar .ljmid{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--border)}
   .lj .ljval{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t2);width:48px;text-align:right;white-space:nowrap}
   .lj .mvn{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--t3);line-height:1.5}
+
+  /* ── Responsive: phones & tablets ─────────────────────────────── */
+  @media (max-width: 860px) {
+    body{overflow:auto;height:auto}
+    #app{height:auto;min-height:100vh}
+    .hdr{padding:6px 10px;position:sticky;top:0}
+    .hdr-t{font-size:11px;letter-spacing:1px}
+    .hdr-i{display:none}
+    .logo{width:26px;height:26px;font-size:9px;flex-shrink:0}
+    .main{display:contents}
+    #app{display:flex;flex-direction:column}
+    .vp{order:1;flex:none;height:56vh;min-height:280px}
+    .ctrl{order:2;border-top:1px solid var(--border);gap:8px;padding:10px 12px}
+    .sb{order:3;width:auto;border-right:none;border-bottom:1px solid var(--border);max-height:42vh;overflow-y:auto}
+    .sb-list{flex:none;min-height:120px;max-height:26vh;overflow-y:auto}
+    .mvr{order:4;width:auto;border-left:none;border-top:1px solid var(--border);max-height:44vh;overflow-y:auto}
+    .empty .ic img{max-width:120px;height:auto}
+    .empty .lb{font-size:13px}
+    .empty .ht{font-size:11px}
+    .kb{display:none}
+    .cb,.tb{padding:8px 12px;font-size:15px;min-width:44px}
+    .tl{min-width:140px;flex:1 1 180px}
+    .cap{top:8px;right:8px;font-size:11px;padding:7px 10px}
+    .info{top:8px;left:8px;font-size:11px;padding:6px 10px;max-width:calc(100% - 20px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .drop{font-size:15px;text-align:center;padding:16px}
+    .mvj,.ljl{max-height:none}
+  }
+  @media (max-width: 480px) {
+    .hdr-t{font-size:10px}
+    .vp{height:46vh;min-height:220px}
+    .ctrl{flex-wrap:wrap;justify-content:center}
+    .cb#bp{flex:none;width:52px;height:52px;font-size:22px}
+    .tl{order:2;flex:1 1 calc(100% - 72px);min-width:0;gap:6px}
+    .tl .tm{font-size:10px;min-width:34px}
+    .sg{order:3;flex:1 1 auto;justify-content:center;gap:6px;margin-top:4px;min-width:0}
+    .sg .sl{display:inline;font-size:10px}
+    .sg .cb,.sg .spb,.sg .tb{padding:7px 9px;font-size:13px}
+    .spb{padding:7px 9px;font-size:13px}
+    #bal,#bf,#bt,#bk,#bd{order:4;flex:1 1 auto;min-width:0;padding:9px 6px;font-size:12px}
+    .sb-tab{padding:5px 2px;font-size:10px}
+    .sb-a{flex-direction:row;flex-wrap:wrap;gap:6px}
+    .sb-b{flex:1;min-width:0;padding:10px 6px;font-size:11px}
+    .info{max-width:calc(100% - 16px)}
+    .empty .ht br{display:none}
+  }
 </style>
 </head>
 <body>
