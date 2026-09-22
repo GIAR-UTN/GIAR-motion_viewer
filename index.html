@@ -1344,7 +1344,7 @@ scene.add(dl);
 scene.add(new THREE.Mesh(
   new THREE.PlaneGeometry(30,30),
   new THREE.MeshStandardMaterial({color:0x10101f,roughness:.9,metalness:.1})
-).rotateX(-Math.PI/2));
+).rotateX(-Math.PI/2).translateY(-0.05));
 var grd=new THREE.GridHelper(30,60,0x222244,0x181830);
 grd.position.y=.001;scene.add(grd);
 
@@ -2045,8 +2045,10 @@ function ensureFK(){
   var any=false;
   for(var i=0;i<mots.length;i++){
     if(mots[i].raw&&!mots[i].d){
-      try{mots[i].d=precomputeFK(fkInfo,mots[i].raw);any=true;}
-      catch(e){console.error('FK failed for '+mots[i].name,e);}
+      try{
+        mots[i].d=precomputeFK(fkInfo,mots[i].raw);any=true;
+        if(mots[i].d && mots[i].d._floorOff===undefined) computeMotionFloorOff(mots[i].d);
+      }catch(e){console.error('FK failed for '+mots[i].name,e);}
     }
   }
   if(any){rSb();uUI();}
@@ -2071,7 +2073,7 @@ function updatePoseLG(lgArr, mot, fr, off) {
     }
   }
 }
-function updatePose(mot, fr) { updatePoseLG(LG, mot, fr, computeAlignOffset(mot, 0)); }
+function updatePose(mot, fr) { updatePoseLG(LG, mot, fr, computeAlignOffset(mot, 0, fr)); }
 
 // Pure builder for a BVH skeleton instance. Returns {LG, names} without
 // touching globals — caller adds to scene + syncs to LG/bodyNames if it's
@@ -2256,29 +2258,43 @@ var SPREAD_STEP = 1.5;
 //              characters keep their standing height
 //   'spread' — push instance i along world +X by SPREAD_STEP * i so
 //              multiple robots line up side-by-side
-function computeAlignOffset(mot, instanceIdx) {
+function computeAlignOffset(mot, instanceIdx, fr) {
   if (!mot || !mot.pF || mot.nF < 1) return null;
   if (alignMode === 'asis') return null;
   if (alignMode === 'spread') return { x: SPREAD_STEP * instanceIdx, y: 0, z: 0 };
   var rx = mot.pF[0], ry = mot.pF[1], rz = mot.pF[2];
-   if (mot.yUp) return { x: -rx, y: 0, z: -rz };
-   // PKL/NPZ: offset root to world origin in the motion's horizontal plane.
-   // Vertical offset uses robotFloorShift (from applyDefaultPose bounding-box
-   // computation) so mesh extents are accounted for — avoiding foot penetration
-   // on robots like B2 whose foot meshes extend well below the FK joint.
-   // We use the MINIMUM root Z across all frames so feet never sink even if
-   // the motion starts at a high root position.
-   if (mot._floorOff === undefined) {
-     var nF = mot.nF, minRz = Infinity;
-     for (var f = 0; f < nF; f++) {
-       var rzf = mot.pF[f * 3 + 2];
-       if (rzf < minRz) minRz = rzf;
-     }
-     mot._floorOff = Math.max(0, robotFloorShift - minRz);
-   }
-   return { x: -rx, y: -ry, z: mot._floorOff };
+  if (mot.yUp) return { x: -rx, y: 0, z: -rz };
+  // PKL/NPZ: per-frame vertical offset so the root stays at a consistent height
+  // (robotFloorShift) and feet remain grounded as root height varies between frames.
+  //   _floorOff = robotFloorShift - rootZ_frame
+  if (mot._floorOffRobotId !== currentRobotId) {
+    mot._floorOffRobotId = currentRobotId;
+    mot._cachedRootZ = null;
+  }
+  var frRootZ = mot.pF[(fr * mot.nB + 0) * 3 + 2];
+  if (frRootZ !== mot._cachedRootZ) {
+    mot._cachedRootZ = frRootZ;
+    mot._floorOff = robotFloorShift - frRootZ;
+  }
+  return { x: -rx, y: -ry, z: mot._floorOff };
 }
 function fmtS(sec){var s=isFinite(sec)?sec:0,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
+function computeMotionFloorOff(mot) {
+  // Pre-compute initial _floorOff using the motion's first-frame root height.
+  // Per-frame values are updated lazily in computeAlignOffset.
+  if (!mot || mot._floorOff !== undefined || !mot.pF || mot.nF < 1) return;
+  var ikRootZ = mot.pF[2];
+  mot._floorOff = robotFloorShift - ikRootZ;
+  mot._floorOffRobotId = currentRobotId;
+  mot._cachedRootZ = null;
+}
+function computeAlignFloorOff(mot) {
+  if (!mot || !mot.pF || mot.nF < 1) return;
+  var ikRootZ = mot.pF[2];
+  mot._floorOff = robotFloorShift - ikRootZ;
+  mot._floorOffRobotId = currentRobotId;
+  mot._cachedRootZ = null;
+}
 function showToast(msg,ms){
   var t=$('to'); t.textContent=msg; t.style.display='block';
   clearTimeout(showToast._t);
@@ -2458,11 +2474,13 @@ function loadNPZ(files, sessionRobotId){
             // 4. Calcular FK (esto deja la simulación lista en el formato interno pF/qF de PKL)
             var d = precomputeFK(fkInfo, rawMotion);
           
-          mots.push({name:f.name.replace('.npz',''), d:d, raw:rawMotion, label:null, robotId:bindRobotId});
-        } else if(a.body_pos_w){
-          var d=extractMotion(a);
-          mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
-        }
+           mots.push({name:f.name.replace('.npz',''), d:d, raw:rawMotion, label:null, robotId:bindRobotId});
+           if(d&&d._floorOff===undefined) computeMotionFloorOff(d);
+         } else if(a.body_pos_w){
+           var d=extractMotion(a);
+           mots.push({name:f.name.replace('.npz',''), d:d, label:null, robotId:bindRobotId});
+           if(d&&d._floorOff===undefined) computeMotionFloorOff(d);
+         }
       }catch(e){console.error(f.name,e);}
       setTimeout(nx,5);
     };
@@ -2948,11 +2966,11 @@ function tick(ts){
       $('t1').textContent = fmtS(longest);
       $('ov').innerHTML='<span class="n">'+mots[aIdx].name+'</span><span class="s">|</span>'+fmtS(cTime)+'<span class="s">|</span>f'+cFr+'/'+(mot.nF-1)+(extras.length?'<span class="s">|</span>+'+extras.length:'');
     }
-    updatePoseLG(LG, mot, cFr, computeAlignOffset(mot, 0));
+    updatePoseLG(LG, mot, cFr, computeAlignOffset(mot, 0, cFr));
     updateLiveJoints();
     for(var x=0;x<extras.length;x++){
       var em = mots[extras[x].mIdx] && mots[extras[x].mIdx].d;
-      if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime), computeAlignOffset(em, x+1));
+      if(em) updatePoseLG(extras[x].LG, em, motFrameAt(em, cTime), computeAlignOffset(em, x+1, motFrameAt(em, cTime)));
     }
     if(fCam && LG.length){cTgt.lerp(LG[0].position,.05);uCam();}
     dl.position.set(cTgt.x+3,cTgt.y+5,cTgt.z+4);
