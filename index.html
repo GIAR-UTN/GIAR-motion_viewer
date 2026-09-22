@@ -326,8 +326,9 @@
       <div class="mv">
         <div class="mvt"><span>Presets</span></div>
         <div class="mvpose">
-          <button class="pbtn" id="preG1" title="Load the G1 robot and precargar sus movimientos">G1 moves</button>
-          <button class="pbtn" id="preGo2" title="Load the Go2 robot and precargar sus movimientos">Go2 moves</button>
+           <button class="pbtn" id="preG1" title="Load the G1 robot and precargar sus movimientos">G1 moves</button>
+           <button class="pbtn" id="preGo2" title="Load the Go2 robot and precargar sus movimientos">Go2 moves</button>
+           <button class="pbtn" id="preB2" title="Load the B2 robot with Go2-compatible motions">B2 moves</button>
         </div>
       </div>
       <div class="mv">
@@ -2259,7 +2260,22 @@ function computeAlignOffset(mot, instanceIdx) {
   if (alignMode === 'asis') return null;
   if (alignMode === 'spread') return { x: SPREAD_STEP * instanceIdx, y: 0, z: 0 };
   var rx = mot.pF[0], ry = mot.pF[1], rz = mot.pF[2];
-  return mot.yUp ? { x: -rx, y: 0, z: -rz } : { x: -rx, y: -ry, z: 0 };
+  if (mot.yUp) return { x: -rx, y: 0, z: -rz };
+  // PKL/NPZ: find the lowest body Z across all frames and offset so it
+  // sits at screen Y=0. Prevents foot penetration when a motion recorded
+  // for one robot is played on a differently-sized robot (e.g. Go2 motions on B2).
+  if (mot._floorOff === undefined) {
+    var nB = mot.nB, nF = mot.nF, minY = Infinity;
+    for (var f = 0; f < nF; f++) {
+      var base = f * nB;
+      for (var i = 0; i < nB; i++) {
+        var bz = mot.pF[base + i * 3 + 2];
+        if (bz < minY) minY = bz;
+      }
+    }
+    mot._floorOff = (minY === Infinity || minY > 0) ? 0 : -minY;
+  }
+  return { x: -rx, y: -ry, z: mot._floorOff };
 }
 function fmtS(sec){var s=isFinite(sec)?sec:0,m=Math.floor(s/60);return m+':'+(s%60).toFixed(1).padStart(4,'0');}
 function showToast(msg,ms){
@@ -2533,6 +2549,7 @@ function loadMotionFiles(files){
 var MODEL_LIBRARY = [
   { label: 'A2',                desc: 'unitree_ros/robots/a2_description/a2.xml',                        meshDir: 'unitree_ros/robots/a2_description/meshes' },
   { label: 'AS2',               desc: 'unitree_ros/robots/as2_description/as2.xml',                      meshDir: 'unitree_ros/robots/as2_description/meshes' },
+  { label: 'B2',                desc: 'unitree_ros/robots/b2/b2.xml',                                    meshDir: 'unitree_ros/robots/b2/assets' },
   { label: 'G1 29dof rev 1.0',  desc: 'unitree_ros/robots/g1_description/g1_29dof_rev_1_0.urdf',          meshDir: 'unitree_ros/robots/g1_description/meshes' },
   { label: 'G1 (BrainCo hand)', desc: 'unitree_ros/robots/g1_with_brainco_hand/g1_29dof_mode_15_brainco_hand.urdf', meshDir: 'unitree_ros/robots/g1_with_brainco_hand/meshes' },
   { label: 'Go2',               desc: 'unitree_ros/robots/go2_description/go2.urdf',                    meshDir: 'unitree_ros/robots/go2_description/meshes' },
@@ -2621,10 +2638,12 @@ initModelLibrary();
 // ── Preset buttons: load a library robot + all of its demo motions ──
 var G1_MOVE_FILES = ['B_AttackKarate.npz','B_BowKarate.npz','B_ChopsKarate.npz','B_CrazyChopsKarate.npz','B_DadDance.npz','B_Fence1.npz','B_Fence2.npz','B_ForwardKarate.npz','B_HandsChop.npz','B_HandsUp.npz','B_LongDance.npz','B_LongKarate.npz','B_SpinKarate.npz','B_SpiralDance.npz','B_StretchDance.npz','B_WiggleDance.npz','J_Dance0_StepTouch.npz','J_Dance11_Gnarly.npz','J_Dance12_LushLife.npz','J_Dance17_Shuffle.npz','J_Dance18_TikTok.npz','J_Dance19_LetsGO.npz','J_Dance1_Modern.npz','J_Dance20_DWG.npz','J_Dance21_Blunt.npz','J_Dance22_Thrilling.npz','J_Dance23_MidnightSun.npz','J_Dance2_Salsa.npz','J_Dance3_Woah.npz','J_Dance4_Broadway.npz','J_Dance5_Hype.npz','J_Dance6_Sassy.npz','J_Dance7_Party.npz','J_Dance8_WestCoast.npz','J_Dance9_PeaceMaker.npz','J_ShortDance13_SingleLadies.npz','J_ShortDance14_Disco.npz','J_ShortDance15_Nineties.npz','J_ShortDance16_JazzWalk.npz','M_Move10.npz','M_Move11.npz','M_Move17.npz','M_Move18.npz','M_Move19.npz','M_Move1.npz','M_Move20.npz','M_Move2.npz','M_Move3.npz','M_Move4.npz','M_Move5.npz','M_Move6.npz','M_Move7.npz','M_Move8.npz','M_Move9.npz','M_ShortMove12.npz','M_ShortMove13.npz','M_ShortMove14.npz','M_ShortMove15.npz','M_ShortMove16.npz','V_PullOver.npz','V_Rocamena.npz'];
 var GO2_MOVE_FILES = ['go2_pace.pkl','go2_run.pkl','go2_trot.pkl','go2_walk0.pkl','go2_walk1.pkl','go2_walk2.pkl','go2_walk3.pkl'];
+var B2_MOVE_FILES  = ['b2_pace.pkl','b2_run.pkl','b2_trot.pkl','b2_walk0.pkl','b2_walk1.pkl','b2_walk2.pkl','b2_walk3.pkl'];
 
 var MOTION_PRESETS = {
-  g1:  { modelIdx: 2, dir: 'demo/g1_moves',  ext: 'npz', files: G1_MOVE_FILES },
-  go2: { modelIdx: 4, dir: 'demo/go2_moves', ext: 'pkl', files: GO2_MOVE_FILES }
+  g1:  { modelIdx: 3, dir: 'demo/g1_moves',  ext: 'npz', files: G1_MOVE_FILES },
+  go2: { modelIdx: 5, dir: 'demo/go2_moves', ext: 'pkl', files: GO2_MOVE_FILES },
+  b2:  { modelIdx: 2, dir: 'demo/b2_moves',  ext: 'pkl', files: B2_MOVE_FILES }
 };
 
 function loadPresetMotions(key) {
@@ -2654,6 +2673,7 @@ function loadPresetMotions(key) {
 
 $('preG1').addEventListener('click', function() { loadPresetMotions('g1'); });
 $('preGo2').addEventListener('click', function() { loadPresetMotions('go2'); });
+$('preB2').addEventListener('click', function() { loadPresetMotions('b2'); });
 
 // ── Drag & Drop ──
 var dc=0;
